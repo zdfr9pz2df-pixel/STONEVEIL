@@ -1,33 +1,57 @@
 # STONEVEIL
 
-A systems-first C++ dungeon crawler prototype inspired by the feel of early-1990s first-person party RPGs, with original code, layout, names, and placeholder visuals.
+STONEVEIL is a systems-first C++ dungeon crawler prototype inspired by the feel of early-1990s first-person party RPGs, with original code, layout, names, and placeholder visuals.
 
-## Prototype goals
+## v0.1 playable slice
 
 - Grid-based first-person exploration
-- 90-degree turning
-- Doors, keys, pickups, and collision
+- 90-degree turning plus strafing
+- Raycast dungeon rendering
+- Collision
+- Locked door + key interaction
 - Three-character party HUD
-- Melee combat and enemy pursuit
-- Healing consumables
-- Save/load
-- Data-oriented dungeon logic
-- Minimal placeholder presentation so mechanics can be iterated first
+- Real-time cooldown melee combat
+- Enemy pursuit and attacks
+- Healing draught pickups/consumption
+- XP counter
+- Prototype exit/victory condition
+- Save/load foundation
+- Windows CI build
 
 ## Tech
 
 - C++17
-- raylib 6.0
+- raylib 5.5 (fetched automatically by CMake)
 - CMake 3.24+
 
 ## Build on Windows
+
+Requirements: Git, CMake, and Visual Studio 2022/2026 with the Desktop development with C++ workload.
 
 ```powershell
 git clone https://github.com/zdfr9pz2df-pixel/STONEVEIL.git
 cd STONEVEIL
 cmake -S . -B build
 cmake --build build --config Release
-.\build\Release\stoneveil.exe
+.\build\bin\Release\stoneveil.exe
 ```
 
-Controls are listed in-game and in this README once the first playable slice lands.
+The first configure downloads raylib automatically.
+
+## Controls
+
+| Input | Action |
+| --- | --- |
+| W / S or Up / Down | Move forward/back |
+| A / D | Strafe left/right |
+| Q / E or Left / Right | Turn 90 degrees |
+| Space | Party melee attack |
+| F | Interact/open locked door |
+| H | Use healing draught |
+| F5 | Save |
+| F9 | Load |
+| Esc | Return to title |
+
+## Current scope
+
+Narrative and final art are intentionally deferred. The immediate goal is to prove the exploration/combat/inventory loop first, then separate additional systems into dedicated modules as the prototype grows.
