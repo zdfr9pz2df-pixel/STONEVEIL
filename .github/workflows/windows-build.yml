@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -15,3 +16,14 @@ jobs:
         run: cmake -S . -B build
       - name: Build
         run: cmake --build build --config Release --parallel
+      - name: Package playtest
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path playtest | Out-Null
+          Copy-Item build/bin/Release/stoneveil.exe playtest/stoneveil.exe
+      - name: Upload Windows playtest
+        uses: actions/upload-artifact@v4
+        with:
+          name: STONEVEIL-Windows-Playtest
+          path: playtest/
+          if-no-files-found: error
