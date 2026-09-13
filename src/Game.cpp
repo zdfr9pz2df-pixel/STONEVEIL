@@ -301,6 +301,8 @@ void Game::drawWorld() const {
     DrawRectangle(24, ViewY, ViewW, ViewH / 2, Color{29, 31, 37, 255});
     DrawRectangle(24, ViewY + ViewH / 2, ViewW, ViewH / 2, Color{43, 37, 31, 255});
 
+    const double posX = static_cast<double>(px_) + 0.5;
+    const double posY = static_cast<double>(py_) + 0.5;
     const double dirX = static_cast<double>(DX[dir_]);
     const double dirY = static_cast<double>(DY[dir_]);
     const double planeX = -dirY * FovScale;
@@ -310,18 +312,18 @@ void Game::drawWorld() const {
         const double cameraX = 2.0 * x / static_cast<double>(ViewW) - 1.0;
         const double rayDirX = dirX + planeX * cameraX;
         const double rayDirY = dirY + planeY * cameraX;
-        int mapX = px_;
-        int mapY = py_;
+        int mapX = static_cast<int>(std::floor(posX));
+        int mapY = static_cast<int>(std::floor(posY));
         const double deltaX = rayDirX == 0.0 ? 1e30 : std::abs(1.0 / rayDirX);
         const double deltaY = rayDirY == 0.0 ? 1e30 : std::abs(1.0 / rayDirY);
         double sideDistX{};
         double sideDistY{};
         int stepX{};
         int stepY{};
-        if (rayDirX < 0) { stepX = -1; sideDistX = (px_ - mapX) * deltaX; }
-        else { stepX = 1; sideDistX = (mapX + 1.0 - px_) * deltaX; }
-        if (rayDirY < 0) { stepY = -1; sideDistY = (py_ - mapY) * deltaY; }
-        else { stepY = 1; sideDistY = (mapY + 1.0 - py_) * deltaY; }
+        if (rayDirX < 0) { stepX = -1; sideDistX = (posX - mapX) * deltaX; }
+        else { stepX = 1; sideDistX = (mapX + 1.0 - posX) * deltaX; }
+        if (rayDirY < 0) { stepY = -1; sideDistY = (posY - mapY) * deltaY; }
+        else { stepY = 1; sideDistY = (mapY + 1.0 - posY) * deltaY; }
 
         bool side = false;
         Tile hitTile = Tile::Wall;
