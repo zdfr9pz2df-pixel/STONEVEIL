@@ -7,6 +7,8 @@
 namespace sv {
 namespace {
 
+constexpr int MaxNestedDispatchDepth = 64;
+
 bool numericValue(const EventValue& value, double& out) {
     if (const auto* integer = std::get_if<int>(&value)) {
         out = static_cast<double>(*integer);
@@ -53,10 +55,12 @@ bool compareValues(const EventValue& left, CompareOp op, const EventValue& right
 void EventRuntime::clear() {
     definitions_.clear();
     firedCounts_.clear();
+    fireDepth_ = 0;
 }
 
 void EventRuntime::resetRuntimeState() {
     firedCounts_.clear();
+    fireDepth_ = 0;
 }
 
 void EventRuntime::addEvent(EventDefinition definition) {
@@ -78,6 +82,9 @@ void EventRuntime::addEvent(EventDefinition definition) {
 }
 
 EventFireResult EventRuntime::fire(const EventContext& context, const EventServices& services) {
+    if (fireDepth_ >= MaxNestedDispatchDepth) return {};
+    ++fireDepth_;
+
     std::vector<std::size_t> candidates;
     candidates.reserve(definitions_.size());
 
@@ -96,12 +103,15 @@ EventFireResult EventRuntime::fire(const EventContext& context, const EventServi
     EventFireResult result;
     for (const std::size_t index : candidates) {
         const auto& definition = definitions_[index];
+
+        // Mark the event before actions run so a Once event cannot recursively
+        // re-enter itself through a signal action.
+        ++firedCounts_[definition.id];
+        ++result.eventsRun;
+
         for (const auto& action : definition.actions) {
             if (services.executeAction) services.executeAction(action, context);
         }
-
-        ++firedCounts_[definition.id];
-        ++result.eventsRun;
 
         if (definition.stopAfterRun) {
             result.consumed = true;
@@ -109,6 +119,7 @@ EventFireResult EventRuntime::fire(const EventContext& context, const EventServi
         }
     }
 
+    --fireDepth_;
     return result;
 }
 
