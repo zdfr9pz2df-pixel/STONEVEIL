@@ -1,9 +1,11 @@
 #include "Game.hpp"
+#include "Authoring.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 namespace sv {
 namespace {
@@ -47,6 +49,123 @@ void Game::reset() {
     attackCooldown_ = 0.0f;
     message_.clear();
     messageTimer_ = 0.0f;
+    messageQueue_.clear();
+    events_.clear();
+    eventFacts_.clear();
+    configureEvents();
+}
+
+void Game::configureEvents() {
+    StoryTileBehavior quietCorridor;
+    quietCorridor.id = "story.quiet_corridor";
+    quietCorridor.name = "Quiet Corridor";
+    quietCorridor.x = 6;
+    quietCorridor.y = 4;
+    quietCorridor.once = true;
+    quietCorridor.speech.push_back({"Vanguard", "It's quiet.", {}});
+    quietCorridor.speech.push_back({"Ranger", "Too quiet.", {}});
+    events_.addEvent(compileStoryTile(quietCorridor));
+
+    DoorBehavior ironDoor;
+    ironDoor.id = spatialObjectId("door", 7, 4);
+    ironDoor.name = "Iron Door";
+    ironDoor.x = 7;
+    ironDoor.y = 4;
+    ironDoor.opens = true;
+    ironDoor.locked = true;
+    ironDoor.requiredItemId = "iron_key";
+    ironDoor.requiredItemCountFact = "inventory.iron_key.count";
+    ironDoor.requiredItemCount = 1;
+    ironDoor.lockedMessage = "The iron lock needs a key.";
+    ironDoor.openMessage = "The lock gives. The door opens.";
+
+    for (auto event : compileDoorBehavior(ironDoor)) {
+        events_.addEvent(std::move(event));
+    }
+}
+
+EventServices Game::eventServices() {
+    EventServices services;
+    services.readFact = [this](const std::string& name) {
+        return readEventFact(name);
+    };
+    services.executeAction = [this](const EventAction& action, const EventContext& context) {
+        executeEventAction(action, context);
+    };
+    return services;
+}
+
+EventFireResult Game::fireEvent(const EventContext& context) {
+    return events_.fire(context, eventServices());
+}
+
+EventValue Game::readEventFact(const std::string& name) const {
+    if (name == "inventory.iron_key.count") return keys_;
+    if (name == "inventory.healing_draught.count") return potions_;
+
+    const auto found = eventFacts_.find(name);
+    return found == eventFacts_.end() ? EventValue{} : found->second;
+}
+
+void Game::executeEventAction(const EventAction& action, const EventContext& context) {
+    switch (action.type) {
+        case EventActionType::ShowMessage:
+            if (!action.text.empty()) setMessage(action.text);
+            break;
+
+        case EventActionType::Speak:
+            if (!action.text.empty()) {
+                const std::string prefix = action.targetId.empty() ? std::string{} : action.targetId + ": ";
+                queueMessage(prefix + action.text, 3.0f);
+            }
+            break;
+
+        case EventActionType::OpenDoor:
+            dungeon_.openDoor(context.x, context.y, true);
+            break;
+
+        case EventActionType::ConsumeItem: {
+            const int amount = std::max(1, action.intValue);
+            if (action.targetId == "iron_key") keys_ = std::max(0, keys_ - amount);
+            else if (action.targetId == "healing_draught") potions_ = std::max(0, potions_ - amount);
+            break;
+        }
+
+        case EventActionType::DamageParty: {
+            const int damage = std::max(0, action.intValue);
+            for (auto& member : party_) {
+                if (member.alive()) member.hp = std::max(0, member.hp - damage);
+            }
+            if (damage > 0) setMessage("A trap tears through the party.");
+            break;
+        }
+
+        case EventActionType::StartDialogue:
+            eventFacts_["runtime.dialogue.request"] = action.targetId;
+            break;
+
+        case EventActionType::StartCutscene:
+            eventFacts_["runtime.cutscene.request"] = action.targetId;
+            break;
+
+        case EventActionType::PlaySound:
+            eventFacts_["runtime.audio.last_sound"] = action.assetId;
+            break;
+
+        case EventActionType::ChangeMusic:
+            eventFacts_["runtime.audio.music"] = action.assetId;
+            break;
+
+        case EventActionType::SetFact:
+            if (!action.targetId.empty()) eventFacts_[action.targetId] = action.value;
+            break;
+
+        case EventActionType::SendSignal:
+            if (!action.targetId.empty()) {
+                fireEvent({EventTriggerType::Signal, context.x, context.y, action.targetId, context.actorId});
+            }
+            break;
+    }
 }
 
 void Game::run() {
@@ -59,6 +178,11 @@ void Game::run() {
 
 void Game::update(float dt) {
     if (messageTimer_ > 0.0f) messageTimer_ -= dt;
+    if (messageTimer_ <= 0.0f && !messageQueue_.empty()) {
+        QueuedMessage next = std::move(messageQueue_.front());
+        messageQueue_.pop_front();
+        setMessage(std::move(next.text), next.seconds);
+    }
     if (attackCooldown_ > 0.0f) attackCooldown_ -= dt;
 
     if (mode_ == Mode::Title) {
@@ -115,6 +239,7 @@ void Game::move(int forward, int strafe) {
     px_ = nx;
     py_ = ny;
     collectPickup();
+    fireEvent({EventTriggerType::PlayerEnterTile, px_, py_, {}, "player"});
 }
 
 void Game::turn(int delta) {
@@ -125,6 +250,10 @@ void Game::interact() {
     const int tx = px_ + DX[dir_];
     const int ty = py_ + DY[dir_];
     if (dungeon_.tile(tx, ty) == Tile::DoorClosed) {
+        const std::string doorId = spatialObjectId("door", tx, ty);
+        const auto eventResult = fireEvent({EventTriggerType::InteractObject, tx, ty, doorId, "player"});
+        if (eventResult.eventsRun > 0) return;
+
         if (keys_ <= 0) {
             setMessage("The iron lock needs a key.");
             return;
@@ -282,6 +411,14 @@ bool Game::load() {
 void Game::setMessage(std::string message, float seconds) {
     message_ = std::move(message);
     messageTimer_ = seconds;
+}
+
+void Game::queueMessage(std::string message, float seconds) {
+    if (messageTimer_ <= 0.0f && messageQueue_.empty()) {
+        setMessage(std::move(message), seconds);
+        return;
+    }
+    messageQueue_.push_back({std::move(message), seconds});
 }
 
 void Game::draw() const {

@@ -1,10 +1,13 @@
 #pragma once
 
 #include "Dungeon.hpp"
+#include "EventSystem.hpp"
 #include "raylib.h"
 
 #include <array>
+#include <deque>
 #include <string>
+#include <unordered_map>
 
 namespace sv {
 
@@ -23,6 +26,11 @@ public:
 
 private:
     enum class Mode { Title, Playing, Victory, Defeat };
+
+    struct QueuedMessage {
+        std::string text;
+        float seconds{2.5f};
+    };
 
     void reset();
     void update(float dt);
@@ -45,8 +53,17 @@ private:
     bool save() const;
     bool load();
     void setMessage(std::string message, float seconds = 2.0f);
+    void queueMessage(std::string message, float seconds = 2.5f);
+
+    void configureEvents();
+    EventServices eventServices();
+    EventFireResult fireEvent(const EventContext& context);
+    EventValue readEventFact(const std::string& name) const;
+    void executeEventAction(const EventAction& action, const EventContext& context);
 
     Dungeon dungeon_;
+    EventRuntime events_;
+    std::unordered_map<std::string, EventValue> eventFacts_;
     Mode mode_{Mode::Title};
     int px_{2};
     int py_{2};
@@ -58,6 +75,7 @@ private:
     float attackCooldown_{0.0f};
     mutable std::string message_;
     float messageTimer_{0.0f};
+    std::deque<QueuedMessage> messageQueue_;
 };
 
 } // namespace sv
