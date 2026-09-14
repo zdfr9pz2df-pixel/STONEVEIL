@@ -20,6 +20,8 @@ add_executable(stoneveil
   src/main.cpp
   src/Game.cpp
   src/Dungeon.cpp
+  src/EventSystem.cpp
+  src/Authoring.cpp
 )
 
 target_include_directories(stoneveil PRIVATE include)
