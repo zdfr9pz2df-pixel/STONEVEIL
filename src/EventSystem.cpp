@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace sv {
 namespace {
@@ -59,8 +60,12 @@ void EventRuntime::resetRuntimeState() {
 }
 
 void EventRuntime::addEvent(EventDefinition definition) {
+    if (definition.id.empty()) {
+        definition.id = "event:" + std::to_string(definitions_.size());
+    }
+
     const auto existing = std::find_if(definitions_.begin(), definitions_.end(), [&](const EventDefinition& event) {
-        return !definition.id.empty() && event.id == definition.id;
+        return event.id == definition.id;
     });
 
     if (existing != definitions_.end()) {
