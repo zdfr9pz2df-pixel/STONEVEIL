@@ -1,5 +1,7 @@
 #include "Authoring.hpp"
 
+#include <utility>
+
 namespace sv {
 
 std::string spatialObjectId(const std::string& kind, int x, int y) {
@@ -43,69 +45,72 @@ EventDefinition compileStoryTile(const StoryTileBehavior& behavior) {
 std::vector<EventDefinition> compileDoorBehavior(const DoorBehavior& behavior) {
     std::vector<EventDefinition> events;
     const std::string doorId = behavior.id.empty() ? spatialObjectId("door", behavior.x, behavior.y) : behavior.id;
+    const bool hasUnlockCondition = behavior.locked && !behavior.requiredItemCountFact.empty();
 
-    EventDefinition success;
-    success.id = doorId + ".interact.success";
-    success.name = behavior.name.empty() ? "Door Interaction" : behavior.name;
-    success.trigger = {EventTriggerType::InteractObject, behavior.x, behavior.y, doorId};
-    success.priority = 100;
-    success.stopAfterRun = true;
+    if (!behavior.locked || hasUnlockCondition) {
+        EventDefinition success;
+        success.id = doorId + ".interact.success";
+        success.name = behavior.name.empty() ? "Door Interaction" : behavior.name;
+        success.trigger = {EventTriggerType::InteractObject, behavior.x, behavior.y, doorId};
+        success.priority = 100;
+        success.stopAfterRun = true;
 
-    if (behavior.locked && !behavior.requiredItemCountFact.empty()) {
-        success.conditions.push_back({
-            behavior.requiredItemCountFact,
-            CompareOp::GreaterOrEqual,
-            behavior.requiredItemCount,
-        });
+        if (hasUnlockCondition) {
+            success.conditions.push_back({
+                behavior.requiredItemCountFact,
+                CompareOp::GreaterOrEqual,
+                behavior.requiredItemCount,
+            });
+        }
+
+        if (!behavior.openSoundAssetId.empty()) {
+            EventAction action;
+            action.type = EventActionType::PlaySound;
+            action.targetId = doorId;
+            action.assetId = behavior.openSoundAssetId;
+            success.actions.push_back(std::move(action));
+        }
+
+        if (behavior.boobyTrapped && behavior.trapDamage > 0) {
+            EventAction action;
+            action.type = EventActionType::DamageParty;
+            action.targetId = "party";
+            action.intValue = behavior.trapDamage;
+            success.actions.push_back(std::move(action));
+        }
+
+        if (behavior.opens) {
+            EventAction action;
+            action.type = EventActionType::OpenDoor;
+            action.targetId = doorId;
+            success.actions.push_back(std::move(action));
+        }
+
+        if (hasUnlockCondition && !behavior.requiredItemId.empty()) {
+            EventAction action;
+            action.type = EventActionType::ConsumeItem;
+            action.targetId = behavior.requiredItemId;
+            action.intValue = behavior.requiredItemCount;
+            success.actions.push_back(std::move(action));
+        }
+
+        if (!behavior.openMessage.empty()) {
+            EventAction action;
+            action.type = EventActionType::ShowMessage;
+            action.text = behavior.openMessage;
+            success.actions.push_back(std::move(action));
+        }
+
+        if (!behavior.cutsceneId.empty()) {
+            EventAction action;
+            action.type = EventActionType::StartCutscene;
+            action.targetId = behavior.cutsceneId;
+            success.actions.push_back(std::move(action));
+        }
+
+        success.actions.insert(success.actions.end(), behavior.afterOpenActions.begin(), behavior.afterOpenActions.end());
+        events.push_back(std::move(success));
     }
-
-    if (!behavior.openSoundAssetId.empty()) {
-        EventAction action;
-        action.type = EventActionType::PlaySound;
-        action.targetId = doorId;
-        action.assetId = behavior.openSoundAssetId;
-        success.actions.push_back(std::move(action));
-    }
-
-    if (behavior.boobyTrapped && behavior.trapDamage > 0) {
-        EventAction action;
-        action.type = EventActionType::DamageParty;
-        action.targetId = "party";
-        action.intValue = behavior.trapDamage;
-        success.actions.push_back(std::move(action));
-    }
-
-    if (behavior.opens) {
-        EventAction action;
-        action.type = EventActionType::OpenDoor;
-        action.targetId = doorId;
-        success.actions.push_back(std::move(action));
-    }
-
-    if (behavior.locked && !behavior.requiredItemId.empty()) {
-        EventAction action;
-        action.type = EventActionType::ConsumeItem;
-        action.targetId = behavior.requiredItemId;
-        action.intValue = behavior.requiredItemCount;
-        success.actions.push_back(std::move(action));
-    }
-
-    if (!behavior.openMessage.empty()) {
-        EventAction action;
-        action.type = EventActionType::ShowMessage;
-        action.text = behavior.openMessage;
-        success.actions.push_back(std::move(action));
-    }
-
-    if (!behavior.cutsceneId.empty()) {
-        EventAction action;
-        action.type = EventActionType::StartCutscene;
-        action.targetId = behavior.cutsceneId;
-        success.actions.push_back(std::move(action));
-    }
-
-    success.actions.insert(success.actions.end(), behavior.afterOpenActions.begin(), behavior.afterOpenActions.end());
-    events.push_back(std::move(success));
 
     if (behavior.locked) {
         EventDefinition blocked;
@@ -115,7 +120,7 @@ std::vector<EventDefinition> compileDoorBehavior(const DoorBehavior& behavior) {
         blocked.priority = 90;
         blocked.stopAfterRun = true;
 
-        if (!behavior.requiredItemCountFact.empty()) {
+        if (hasUnlockCondition) {
             blocked.conditions.push_back({
                 behavior.requiredItemCountFact,
                 CompareOp::LessThan,
