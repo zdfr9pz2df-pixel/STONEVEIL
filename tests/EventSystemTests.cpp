@@ -28,14 +28,15 @@ struct Harness {
     }
 };
 
-void storyTileRunsOnce() {
+void storyTileRunsOnceAndPreservesSpeechOrder() {
     StoryTileBehavior tile;
     tile.id = "story.quiet_corridor";
     tile.name = "Quiet Corridor";
     tile.x = 6;
     tile.y = 4;
     tile.once = true;
-    tile.speech.push_back({"Vanguard", "It's quiet... too quiet.", {}});
+    tile.speech.push_back({"Vanguard", "It's quiet.", {}});
+    tile.speech.push_back({"Ranger", "Too quiet.", {}});
 
     EventRuntime runtime;
     runtime.addEvent(compileStoryTile(tile));
@@ -45,9 +46,13 @@ void storyTileRunsOnce() {
 
     const auto first = runtime.fire(entered, harness.services());
     assert(first.eventsRun == 1);
-    assert(harness.actions.size() == 1);
+    assert(harness.actions.size() == 2);
     assert(harness.actions[0].type == EventActionType::Speak);
     assert(harness.actions[0].targetId == "Vanguard");
+    assert(harness.actions[0].text == "It's quiet.");
+    assert(harness.actions[1].type == EventActionType::Speak);
+    assert(harness.actions[1].targetId == "Ranger");
+    assert(harness.actions[1].text == "Too quiet.");
 
     harness.actions.clear();
     const auto second = runtime.fire(entered, harness.services());
@@ -124,7 +129,7 @@ void permanentlyLockedDoorHasNoSuccessEvent() {
 } // namespace
 
 int main() {
-    storyTileRunsOnce();
+    storyTileRunsOnceAndPreservesSpeechOrder();
     lockedDoorChoosesReadableFailure();
     doorWithKeyRunsSuccessPath();
     permanentlyLockedDoorHasNoSuccessEvent();
