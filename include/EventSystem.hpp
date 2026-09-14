@@ -114,6 +114,7 @@ private:
 
     std::vector<EventDefinition> definitions_;
     std::unordered_map<std::string, std::uint32_t> firedCounts_;
+    int fireDepth_{0};
 };
 
 } // namespace sv
