@@ -5,6 +5,7 @@
 #include "raylib.h"
 
 #include <array>
+#include <deque>
 #include <string>
 #include <unordered_map>
 
@@ -25,6 +26,11 @@ public:
 
 private:
     enum class Mode { Title, Playing, Victory, Defeat };
+
+    struct QueuedMessage {
+        std::string text;
+        float seconds{2.5f};
+    };
 
     void reset();
     void update(float dt);
@@ -47,6 +53,7 @@ private:
     bool save() const;
     bool load();
     void setMessage(std::string message, float seconds = 2.0f);
+    void queueMessage(std::string message, float seconds = 2.5f);
 
     void configureEvents();
     EventServices eventServices();
@@ -68,6 +75,7 @@ private:
     float attackCooldown_{0.0f};
     mutable std::string message_;
     float messageTimer_{0.0f};
+    std::deque<QueuedMessage> messageQueue_;
 };
 
 } // namespace sv
