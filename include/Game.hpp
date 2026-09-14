@@ -1,10 +1,12 @@
 #pragma once
 
 #include "Dungeon.hpp"
+#include "EventSystem.hpp"
 #include "raylib.h"
 
 #include <array>
 #include <string>
+#include <unordered_map>
 
 namespace sv {
 
@@ -46,7 +48,15 @@ private:
     bool load();
     void setMessage(std::string message, float seconds = 2.0f);
 
+    void configureEvents();
+    EventServices eventServices();
+    EventFireResult fireEvent(const EventContext& context);
+    EventValue readEventFact(const std::string& name) const;
+    void executeEventAction(const EventAction& action, const EventContext& context);
+
     Dungeon dungeon_;
+    EventRuntime events_;
+    std::unordered_map<std::string, EventValue> eventFacts_;
     Mode mode_{Mode::Title};
     int px_{2};
     int py_{2};
