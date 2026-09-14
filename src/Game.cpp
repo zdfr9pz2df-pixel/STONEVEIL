@@ -49,6 +49,7 @@ void Game::reset() {
     attackCooldown_ = 0.0f;
     message_.clear();
     messageTimer_ = 0.0f;
+    messageQueue_.clear();
     events_.clear();
     eventFacts_.clear();
     configureEvents();
@@ -61,7 +62,8 @@ void Game::configureEvents() {
     quietCorridor.x = 6;
     quietCorridor.y = 4;
     quietCorridor.once = true;
-    quietCorridor.speech.push_back({"Vanguard", "It's quiet... too quiet.", {}});
+    quietCorridor.speech.push_back({"Vanguard", "It's quiet.", {}});
+    quietCorridor.speech.push_back({"Ranger", "Too quiet.", {}});
     events_.addEvent(compileStoryTile(quietCorridor));
 
     DoorBehavior ironDoor;
@@ -114,7 +116,7 @@ void Game::executeEventAction(const EventAction& action, const EventContext& con
         case EventActionType::Speak:
             if (!action.text.empty()) {
                 const std::string prefix = action.targetId.empty() ? std::string{} : action.targetId + ": ";
-                setMessage(prefix + action.text, 3.0f);
+                queueMessage(prefix + action.text, 3.0f);
             }
             break;
 
@@ -176,6 +178,11 @@ void Game::run() {
 
 void Game::update(float dt) {
     if (messageTimer_ > 0.0f) messageTimer_ -= dt;
+    if (messageTimer_ <= 0.0f && !messageQueue_.empty()) {
+        QueuedMessage next = std::move(messageQueue_.front());
+        messageQueue_.pop_front();
+        setMessage(std::move(next.text), next.seconds);
+    }
     if (attackCooldown_ > 0.0f) attackCooldown_ -= dt;
 
     if (mode_ == Mode::Title) {
@@ -404,6 +411,14 @@ bool Game::load() {
 void Game::setMessage(std::string message, float seconds) {
     message_ = std::move(message);
     messageTimer_ = seconds;
+}
+
+void Game::queueMessage(std::string message, float seconds) {
+    if (messageTimer_ <= 0.0f && messageQueue_.empty()) {
+        setMessage(std::move(message), seconds);
+        return;
+    }
+    messageQueue_.push_back({std::move(message), seconds});
 }
 
 void Game::draw() const {
