@@ -692,6 +692,7 @@ void LevelEditor::recordUndo() {
 }
 
 void LevelEditor::undo() {
+    inspectorOpen_ = movingSelection_ = false;
     if (!document_.undo()) { status_ = "Nothing to undo."; return; }
     selectedObjectIndex_ = selectedRoomIndex_ = selectedTriggerIndex_ = -1;
     roomAnchorX_ = roomAnchorY_ = -1;
@@ -700,6 +701,7 @@ void LevelEditor::undo() {
 }
 
 void LevelEditor::redo() {
+    inspectorOpen_ = movingSelection_ = false;
     if (!document_.redo()) { status_ = "Nothing to redo."; return; }
     selectedObjectIndex_ = selectedRoomIndex_ = selectedTriggerIndex_ = -1;
     roomAnchorX_ = roomAnchorY_ = -1;
@@ -765,6 +767,7 @@ void LevelEditor::refreshValidation(const std::string& successMessage) {
 }
 
 void LevelEditor::syncSelectionsFromLevel() {
+    inspectorOpen_ = movingSelection_ = false;
     selectedWallMaterial_ = level_.surfaces.wallMaterial;
     selectedFloorMaterial_ = level_.surfaces.floorMaterial;
     selectedCeilingMaterial_ = level_.surfaces.ceilingMaterial;
@@ -833,13 +836,12 @@ void LevelEditor::paintStructure(int x, int y) {
     }
 
     if (structureBrush_ == StructureBrush::Spawn) {
-        if (isSolid(level_.map[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)])) {
-            status_ = "The player spawn must be placed on a walkable cell.";
-            return;
-        }
+        auto candidate = level_;
+        LevelSelection spawn;
+        std::string error;
+        if (!LevelEditing::move(candidate, spawn, x, y, error)) { status_ = error; return; }
         recordUndo();
-        level_.spawnX = x;
-        level_.spawnY = y;
+        level_ = std::move(candidate);
         refreshValidation("Player spawn moved.");
         return;
     }
@@ -852,6 +854,14 @@ void LevelEditor::paintStructure(int x, int y) {
 
     auto& cell = level_.map[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)];
     if (cell == marker) return;
+    if (cell == 'D') {
+        auto candidate = level_;
+        for (const auto& selection : LevelEditing::at(level_, x, y)) {
+            if (selection.kind != SelectionKind::Door) continue;
+            std::string error;
+            if (!LevelEditing::erase(candidate, selection, error)) { status_ = error; return; }
+        }
+    }
     recordUndo();
     if (marker == 'E') {
         for (auto& row : level_.map) {
@@ -973,30 +983,20 @@ void LevelEditor::paintObject(int x, int y) {
         return object.x == x && object.y == y;
     });
     if (objectBrush_ == ObjectBrush::Erase) {
-        const bool found = objectAt != level_.objects.end() ||
-            std::any_of(level_.pickups.begin(), level_.pickups.end(), [x, y](const Pickup& value) { return value.x == x && value.y == y; }) ||
-            std::any_of(level_.enemies.begin(), level_.enemies.end(), [x, y](const Enemy& value) { return value.x == x && value.y == y; }) ||
-            std::any_of(level_.doors.begin(), level_.doors.end(), [x, y](const DoorPlacement& value) { return value.x == x && value.y == y; });
+        auto candidate = level_;
+        bool found = false;
+        for (const auto& selection : LevelEditing::at(level_, x, y)) {
+            if (selection.kind == SelectionKind::Spawn || selection.kind == SelectionKind::Light) continue;
+            std::string error;
+            if (!LevelEditing::erase(candidate, selection, error)) { status_ = error; return; }
+            found = true;
+        }
         if (!found) {
             status_ = "No editable object in that cell.";
             return;
         }
         recordUndo();
-        level_.objects.erase(std::remove_if(level_.objects.begin(), level_.objects.end(), [x, y](const WorldObject& value) {
-            return value.x == x && value.y == y;
-        }), level_.objects.end());
-        level_.pickups.erase(std::remove_if(level_.pickups.begin(), level_.pickups.end(), [x, y](const Pickup& value) {
-            return value.x == x && value.y == y;
-        }), level_.pickups.end());
-        level_.enemies.erase(std::remove_if(level_.enemies.begin(), level_.enemies.end(), [x, y](const Enemy& value) {
-            return value.x == x && value.y == y;
-        }), level_.enemies.end());
-        level_.doors.erase(std::remove_if(level_.doors.begin(), level_.doors.end(), [x, y](const DoorPlacement& value) {
-            return value.x == x && value.y == y;
-        }), level_.doors.end());
-        if (level_.map[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] == 'D') {
-            level_.map[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] = '.';
-        }
+        level_ = std::move(candidate);
         selectedObjectIndex_ = -1;
         refreshValidation("Object removed.");
         return;
@@ -1531,6 +1531,17 @@ void LevelEditor::update() {
     if (control && IsKeyPressed(KEY_N)) requestDestructiveAction(PendingAction::NewLevel);
     if (control && IsKeyPressed(KEY_Z)) undo();
     if (control && IsKeyPressed(KEY_Y)) redo();
+    const auto inspectMap = mapBounds(level_);
+    const auto inspectMouse = GetMousePosition();
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && CheckCollisionPointRec(inspectMouse, inspectMap)) {
+        inspectCell(static_cast<int>((inspectMouse.x - inspectMap.x) / mapCellSize(level_)),
+                    static_cast<int>((inspectMouse.y - inspectMap.y) / mapCellSize(level_)));
+        return;
+    }
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(inspectMouse, {1100, 20, 128, 28})) {
+        inspectorOpen_ = true; movingSelection_ = false; selection_ = {}; return;
+    }
+    if (inspectorOpen_) { updateInspector(); return; }
     if (IsKeyPressed(KEY_V)) refreshValidation("Level is valid and ready to save.");
     if (IsKeyPressed(KEY_P)) requestPlaytest();
     if (IsKeyPressed(KEY_ESCAPE)) {
@@ -1741,6 +1752,7 @@ void LevelEditor::draw() const {
     drawButton(newButton(), "NEW", false, 11);
     drawButton(saveAsButton(), "SAVE AS", false, 11);
     drawButton(projectButton(), "PROJECT", false, 13);
+    drawButton({1100, 20, 128, 28}, "INSPECT", inspectorOpen_, 13);
 
     static constexpr std::array<const char*, LayerCount> layerLabels = {
         "MAP", "WALL", "FLOOR", "CEIL", "OBJ", "STORY", "EVENT", "LIGHT", "AUDIO",
@@ -2075,6 +2087,7 @@ void LevelEditor::draw() const {
     }
     DrawText(shortened(levelPath_, 82).c_str(), static_cast<int>(OptionX), 678, 12, Muted);
 
+    if (inspectorOpen_) drawInspector();
     if (importPanelOpen_) {
         const Rectangle panel = importPanelBounds();
         DrawRectangleRec({0.0f, 0.0f, 1280.0f, 720.0f}, Color{4, 5, 7, 172});
@@ -2128,6 +2141,133 @@ void LevelEditor::draw() const {
         DrawText("S  save and continue     D  discard     ESC  cancel", 408, 344, 18, Muted);
         DrawText("Your draft stays intact until you choose.", 462, 386, 16, Accent);
     }
+}
+
+void LevelEditor::inspectCell(int x, int y) {
+    const auto choices = LevelEditing::at(level_, x, y);
+    if (choices.empty()) { status_ = "No object here. Right-click an object, light, door, or spawn."; return; }
+    std::size_t next = 0;
+    if (inspectorOpen_) for (std::size_t i = 0; i < choices.size(); ++i) {
+        const auto& candidate = choices[i];
+        if (candidate.kind == selection_.kind && candidate.id == selection_.id &&
+            candidate.x == selection_.x && candidate.y == selection_.y) next = (i + 1) % choices.size();
+    }
+    selection_ = choices[next];
+    inspectorOpen_ = true;
+    movingSelection_ = false;
+    status_ = "Right-click again to cycle stacked objects. Escape closes the inspector.";
+}
+
+void LevelEditor::updateInspector() {
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        if (movingSelection_) { movingSelection_ = false; status_ = "Move cancelled."; }
+        else inspectorOpen_ = false;
+        return;
+    }
+    const auto mouse = GetMousePosition();
+    const auto map = mapBounds(level_);
+    if (movingSelection_ && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, map)) {
+        auto candidate = level_;
+        auto selected = selection_;
+        std::string error;
+        const int x = static_cast<int>((mouse.x-map.x)/mapCellSize(level_));
+        const int y = static_cast<int>((mouse.y-map.y)/mapCellSize(level_));
+        if (!LevelEditing::move(candidate, selected, x, y, error)) { status_ = error; return; }
+        recordUndo();
+        level_ = std::move(candidate);
+        selection_ = selected;
+        movingSelection_ = false;
+        refreshValidation("Moved object; identity and attached events preserved.");
+        return;
+    }
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) return;
+    if (CheckCollisionPointRec(mouse, {1175, 112, 45, 30})) { inspectorOpen_ = movingSelection_ = false; return; }
+    int action = -1;
+    for (int i = 0; i < 5; ++i)
+        if (CheckCollisionPointRec(mouse, {610, 255.0f + i*44.0f, 585, 34})) action = i;
+    if (action < 0) return;
+    int x{}, y{};
+    if (!LevelEditing::locate(level_, selection_, x, y)) { inspectorOpen_ = false; status_ = "Selection no longer exists."; return; }
+    if (action == 0) { movingSelection_ = true; status_ = "Click the destination cell. Escape cancels."; return; }
+    if (action == 1) {
+        auto candidate = level_;
+        std::string error;
+        if (!LevelEditing::erase(candidate, selection_, error)) { status_ = error; return; }
+        recordUndo(); level_ = std::move(candidate); inspectorOpen_ = movingSelection_ = false;
+        refreshValidation("Deleted selected object. Undo restores it."); return;
+    }
+    if (selection_.kind == SelectionKind::Object) {
+        const auto it = std::find_if(level_.objects.begin(), level_.objects.end(), [&](const auto& o) { return o.id == selection_.id; });
+        selectedObjectIndex_ = static_cast<int>(std::distance(level_.objects.begin(), it));
+        if (action == 3) { beginTextEdit(TextField::ObjectName); return; }
+        if (action == 4) { beginTextEdit(TextField::ObjectText); return; }
+        recordUndo(); it->blocksMovement = !it->blocksMovement;
+    } else if (action != 2) return;
+    else if (selection_.kind == SelectionKind::Spawn) {
+        recordUndo(); level_.spawnDirection = (level_.spawnDirection + 1) % 4;
+    } else if (selection_.kind == SelectionKind::Door) {
+        recordUndo();
+        for (auto& door : level_.doors) if (door.id == selection_.id) door.locked = !door.locked;
+    } else if (selection_.kind == SelectionKind::Pickup) {
+        recordUndo();
+        for (auto& item : level_.pickups) if (item.id == selection_.id)
+            item.type = item.type == Pickup::Type::Key ? Pickup::Type::Potion : Pickup::Type::Key;
+    } else if (selection_.kind == SelectionKind::Enemy) {
+        recordUndo();
+        const auto& catalog = enemyCatalog();
+        for (auto& enemy : level_.enemies) if (enemy.id == selection_.id) {
+            auto it = std::find_if(catalog.begin(), catalog.end(), [&](const auto& type) { return type.id == enemy.typeId; });
+            const auto index = it == catalog.end() ? 0 : (std::distance(catalog.begin(), it) + 1) % catalog.size();
+            enemy.typeId = catalog[index].id; enemy.hp = catalog[index].maxHp;
+        }
+    } else if (selection_.kind == SelectionKind::Light) {
+        recordUndo();
+        const auto& catalog = lightCatalog();
+        for (auto& light : level_.lights) if (light.x == x && light.y == y) {
+            auto it = std::find_if(catalog.begin(), catalog.end(), [&](const auto& type) { return type.id == light.lightId; });
+            const auto index = it == catalog.end() ? 0 : (std::distance(catalog.begin(), it) + 1) % catalog.size();
+            light.lightId = catalog[index].id; selection_.id = light.lightId;
+        }
+    }
+    refreshValidation("Updated selected object.");
+}
+
+void LevelEditor::drawInspector() const {
+    int x{}, y{};
+    if (!LevelEditing::locate(level_, selection_, x, y)) return;
+    const auto map = mapBounds(level_);
+    const auto size = mapCellSize(level_);
+    DrawRectangleLinesEx({map.x+x*size, map.y+y*size, size, size}, 3, Accent);
+    DrawRectangle(585, 103, 650, 433, Panel);
+    DrawRectangleLines(585, 103, 650, 433, Accent);
+    DrawText("OBJECT INSPECTOR", 610, 120, 22, Text);
+    drawButton({1175, 112, 45, 30}, "X", false, 16);
+    std::string title, property;
+    switch (selection_.kind) {
+    case SelectionKind::Spawn: title = "PLAYER SPAWN"; property = "ROTATE CLOCKWISE"; break;
+    case SelectionKind::Door: title = "DOOR / GATE"; property = "TOGGLE LOCK"; break;
+    case SelectionKind::Enemy: title = "ENEMY"; property = "NEXT ARCHETYPE (RESETS HEALTH)"; break;
+    case SelectionKind::Pickup: title = "PICKUP"; property = "SWITCH KEY / POTION"; break;
+    case SelectionKind::Light: title = "LIGHT"; property = "NEXT LIGHT TYPE"; break;
+    case SelectionKind::Object: title = "WORLD OBJECT"; property = "TOGGLE MOVEMENT BLOCKING"; break;
+    }
+    DrawText(TextFormat("%s   CELL %d, %d", title.c_str(), x, y), 610, 160, 17, Text);
+    DrawText(shortened("ID: " + (selection_.kind == SelectionKind::Spawn ? std::string{"level-owned spawn"} : selection_.id), 68).c_str(), 610, 188, 14, Muted);
+    std::string detail;
+    if (selection_.kind == SelectionKind::Spawn) detail = std::string("Facing: ") + std::array<const char*,4>{"NORTH","EAST","SOUTH","WEST"}[level_.spawnDirection];
+    for (const auto& door : level_.doors) if (selection_.kind == SelectionKind::Door && door.id == selection_.id) detail = door.locked ? "LOCKED" : "UNLOCKED";
+    for (const auto& enemy : level_.enemies) if (selection_.kind == SelectionKind::Enemy && enemy.id == selection_.id) detail = enemyTypeOrDefault(enemy.typeId).name + " / HP " + std::to_string(enemy.hp);
+    for (const auto& item : level_.pickups) if (selection_.kind == SelectionKind::Pickup && item.id == selection_.id) detail = item.type == Pickup::Type::Key ? "KEY" : "POTION";
+    for (const auto& object : level_.objects) if (selection_.kind == SelectionKind::Object && object.id == selection_.id) {
+        detail = object.name + (object.blocksMovement ? " / BLOCKING" : " / WALKABLE");
+        drawButton({610, 387, 585, 34}, shortened("NAME: " + object.name, 58).c_str(), textField_ == TextField::ObjectName, 14);
+        drawButton({610, 431, 585, 34}, shortened("TEXT: " + object.text, 58).c_str(), textField_ == TextField::ObjectText, 14);
+    }
+    DrawText(shortened(detail, 65).c_str(), 610, 218, 16, Accent);
+    drawButton({610, 255, 585, 34}, movingSelection_ ? "CLICK DESTINATION ON MAP" : "MOVE", movingSelection_, 16);
+    drawButton({610, 299, 585, 34}, "DELETE (UNDOABLE; ATTACHED EVENTS PROTECTED)", false, 14);
+    drawButton({610, 343, 585, 34}, property.c_str(), false, 15);
+    DrawText("Right-click a cell to select / cycle. ESC cancels or closes.", 610, 494, 14, Muted);
 }
 
 } // namespace sv

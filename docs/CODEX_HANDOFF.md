@@ -32,14 +32,25 @@ queue in order, and editor-only room mood/purpose are not emitted as dialogue.
 `LevelDocument` owns editor draft/path/history: New and blueprint imports are
 untitled, Save As creates a new identity, and undo/redo restores document identity
 and saved-state. Window close uses the unsaved-work confirmation. Windows
-integration CI for the preceding slice is green; the current local suite has six
+integration CI for the preceding slice is green; the current local suite has seven
 CTest cases. The project/export slice adds ProjectDocument, native file dialogs,
 a Project panel, level registry/start selection, and player-only Windows export.
 See PROJECT_WORKFLOW.md for use and limitations. The bundled project opens
 automatically. Explicit project roots isolate textures, music and saves; Release
 uses the static Microsoft runtime. AtomicFile now protects individual level,
-campaign, manifest and save writes. Project-wide transactions, object
-selection/movement/inspector and character authoring remain unfinished.
+campaign, manifest and save writes. Project-wide transactions and character
+authoring remain unfinished.
+
+The object-inspector slice adds raylib-free LevelEditing and a right-click
+inspector for spawn, world objects, enemies, pickups, doors/gates and lights.
+Right-click repeatedly to cycle stacked entities. Move preserves stable IDs and
+retargets attached event coordinates (including legacy coordinate-only bindings);
+EnterCell events remain at their authored locations. Delete refuses attached
+events, including through the older Object Erase and door-repainting paths.
+Undo/redo restores complete draft transactions. Inspect also exposes spawn
+facing, door lock, pickup type, enemy archetype/health reset, light type, object
+movement blocking, and existing object name/text editing. Other object-facing
+fields do not yet exist; no dummy facing values were added. Seven CTest cases.
 
 STONEVEIL v0.4 is a playable Windows C++17/raylib dungeon-crawler slice with an integrated, story-first dungeon editor.
 
@@ -199,7 +210,7 @@ Keep the current 4–64 dimension safety range until larger-map performance and 
 
 ## Non-regression requirements
 
-- Keep the Release build and all five CTest cases green.
+- Keep the Release build and all seven CTest cases green.
 - Preserve movement, collision, doors, combat, save/load compatibility, and the centered-eye raycaster.
 - Keep loading older level files; saving always upgrades them to the current version.
 - Keep the single executable and shared `content` folder in the downloadable Windows playtest.

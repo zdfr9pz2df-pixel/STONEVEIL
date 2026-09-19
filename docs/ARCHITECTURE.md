@@ -65,6 +65,11 @@ Nothing below depends on `Game`. `Game` depends on all of it.
 - `LevelDocument` — editor draft, file identity, save points and bounded undo/redo
   history. It is raylib-free and tested separately. New/imported drafts have no
   file path; Save As creates a distinct level ID and never overwrites a sibling.
+- `LevelEditing` — raylib-free selection lookup, transactional entity movement
+  and guarded deletion. Stable entity IDs survive moves; v6 light identity is
+  still its unique cell plus light type. Attached event coordinates follow the
+  entity; independent EnterCell events remain in place. UI commits successful
+  candidates through LevelDocument history and never records failed moves.
 - `LevelBlueprint` — a copy/paste import language for Codex-assisted level generation. It parses
   `STONEVEIL_BLUEPRINT 1` text into ordinary `LevelDefinition` data, resolves friendly material/light
   aliases to stable IDs, accepts water-volume commands, and validates through `LevelIO` before the

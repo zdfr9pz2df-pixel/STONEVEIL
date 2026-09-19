@@ -3,6 +3,7 @@
 #include "Dungeon.hpp"
 #include "LevelDocument.hpp"
 #include "Project.hpp"
+#include "LevelEditing.hpp"
 
 #include <random>
 #include <string>
@@ -20,6 +21,8 @@ public:
     void showLightsLayerForCapture();
     void showStoryLayerForCapture();
     void showProjectPanelForCapture(bool visible) { projectPanelOpen_ = visible; }
+    void showInspectorForCapture() { selection_ = {}; inspectorOpen_ = true; }
+    void closeInspectorForCapture() { inspectorOpen_ = movingSelection_ = false; }
     bool consumePlaytestRequest();
     bool consumeExitRequest();
     bool hasUnsavedChanges() const { return document_.dirty(); }
@@ -93,6 +96,9 @@ private:
     void updateProjectPanel();
     void drawProjectPanel() const;
     void registerSavedLevel();
+    void inspectCell(int x, int y);
+    void updateInspector();
+    void drawInspector() const;
     void refreshValidation(const std::string& successMessage);
     void syncSelectionsFromLevel();
     void setLayer(Layer layer);
@@ -126,6 +132,9 @@ private:
 
     LevelDocument document_;
     ProjectDocument project_;
+    LevelSelection selection_;
+    bool inspectorOpen_{false};
+    bool movingSelection_{false};
     bool projectPanelOpen_{false};
     int projectScroll_{0};
     int requestedProjectLevel_{0};

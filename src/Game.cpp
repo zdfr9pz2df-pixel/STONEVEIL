@@ -339,6 +339,14 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
                                   std::filesystem::copy_options::overwrite_existing, error);
         std::filesystem::remove(originalDirectory / "stoneveil-project-panel.png", error);
         editor_->showProjectPanelForCapture(false);
+        editor_->showInspectorForCapture();
+        draw();
+        draw();
+        TakeScreenshot("stoneveil-object-inspector.png");
+        std::filesystem::copy_file(originalDirectory / "stoneveil-object-inspector.png", directory / "object-inspector.png",
+                                  std::filesystem::copy_options::overwrite_existing, error);
+        std::filesystem::remove(originalDirectory / "stoneveil-object-inspector.png", error);
+        editor_->closeInspectorForCapture();
     }
     if (editor_ != nullptr) editor_->showLightsLayerForCapture();
     draw();

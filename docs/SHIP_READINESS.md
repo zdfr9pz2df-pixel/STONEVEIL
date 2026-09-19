@@ -49,6 +49,13 @@ does not satisfy a gate.
 
 ## Known open defects
 
+- Object inspector slice: local Release and CTest 7/7 pass; selection/movement,
+  occupied/boundary rejection, door-marker movement, stable/legacy event
+  following, protected deletion and undo/redo are tested. Spawn inspector
+  capture inspected at build/object-inspector-smoke/object-inspector.png.
+  Gate 2 remains IN PROGRESS: room/trigger spatial transforms, rich behavior
+  inspection and authored non-spawn facing are not implemented.
+
 - External character catalog, recruitment UI, management points and destination
   transitions remain absent. Project browser/creator and basic export now exist.
 - Richer Story Tile/door compiler fields still need format/editor/runtime
@@ -68,5 +75,6 @@ does not satisfy a gate.
 
 ## Next highest-leverage task
 
-Finish Gate 2 with contextual select/move/facing and inspector operations, then
-proceed to the authored Character Creator/roster gate.
+Extend the inspector to room/trigger transforms and richer authored behaviors;
+then proceed to the authored Character Creator/roster gate. Do not treat the
+current per-type property controls as a complete behavior-authoring interface.

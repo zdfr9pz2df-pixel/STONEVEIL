@@ -43,6 +43,25 @@ Developer checks:
     stoneveil.exe --project path/to/game.stoneveil
     stoneveil.exe --capture-ui capture-folder --project path/to/game.stoneveil
 
+## Object inspection
+
+Right-click an object on the map to open its inspector. Right-click again to
+cycle objects sharing that cell (for example a note and a light). The top
+**Inspect** button opens the player-spawn inspector.
+
+Choose **Move**, then click a destination; Escape cancels the move. Escape again
+closes the inspector. Invalid/occupied destinations leave the draft unchanged.
+Doors move their structure marker with them; surfaces remain attached to cells.
+Object identity and attached events survive movement. Delete is undoable but
+refuses objects with attached events until those events are removed/retargeted.
+Location-based EnterCell stories deliberately remain where authored.
+
+Available properties are type-specific: spawn facing, door lock, pickup kind,
+enemy archetype (resets authored HP), light type, and world-object movement
+blocking/name/text. Other kinds have no authored facing field yet. Text editing
+uses the existing Enter/Escape-to-finish behavior; Ctrl+Z undoes the edit after
+finishing. Inspector mutations participate in document Undo/Redo.
+
 ProjectTests covers two-level registration, start selection, identity preservation,
 duplicate rejection, path traversal, missing-audio warnings, no-overwrite export,
 and atomic replacement failures. Passing an executable path to that test retains
