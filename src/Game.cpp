@@ -1,9 +1,22 @@
 #include "Game.hpp"
+#include "CombatTuning.hpp"
+#include "EnemyType.hpp"
+#include "LevelIO.hpp"
+#include "SaveSystem.hpp"
+#include "WorldEvents.hpp"
 
 #include <algorithm>
-#include <cmath>
-#include <fstream>
-#include <sstream>
+#include <array>
+#include <filesystem>
+#include <vector>
+
+#ifndef STONEVEIL_BUILD_LABEL
+#define STONEVEIL_BUILD_LABEL "STONEVEIL v0.3"
+#endif
+
+#ifndef STONEVEIL_SOURCE_DIR
+#define STONEVEIL_SOURCE_DIR ""
+#endif
 
 namespace sv {
 namespace {
@@ -12,177 +25,616 @@ constexpr int ScreenH = 720;
 constexpr int ViewW = 930;
 constexpr int ViewH = 560;
 constexpr int ViewY = 36;
-constexpr float FovScale = 0.66f;
 
-constexpr int DX[4] = {0, 1, 0, -1};
-constexpr int DY[4] = {-1, 0, 1, 0};
+constexpr int StarterCardW = 330;
+constexpr int StarterCardH = 360;
+constexpr int StarterCardGap = 28;
+constexpr int StarterCardY = 190;
+constexpr int StarterCardX = (ScreenW - StarterCardW * 3 - StarterCardGap * 2) / 2;
+constexpr int TitleButtonW = 360;
+constexpr int TitleButtonH = 48;
+constexpr int TitleButtonGap = 12;
+constexpr int TitleButtonX = (ScreenW - TitleButtonW) / 2;
+constexpr int TitleButtonY = 330;
 
-Color wallColor(Tile t, bool side) {
-    Color c = (t == Tile::DoorClosed) ? Color{126, 87, 46, 255} : Color{92, 103, 112, 255};
-    if (side) {
-        c.r = static_cast<unsigned char>(c.r * 0.72f);
-        c.g = static_cast<unsigned char>(c.g * 0.72f);
-        c.b = static_cast<unsigned char>(c.b * 0.72f);
+Rectangle starterCardRectangle(int index) {
+    return Rectangle{
+        static_cast<float>(StarterCardX + index * (StarterCardW + StarterCardGap)),
+        static_cast<float>(StarterCardY),
+        static_cast<float>(StarterCardW),
+        static_cast<float>(StarterCardH),
+    };
+}
+
+Rectangle titleButtonRectangle(int index) {
+    return {
+        static_cast<float>(TitleButtonX),
+        static_cast<float>(TitleButtonY + index * (TitleButtonH + TitleButtonGap)),
+        static_cast<float>(TitleButtonW),
+        static_cast<float>(TitleButtonH),
+    };
+}
+
+Rectangle campaignPreviousButton() { return {405.0f, 286.0f, 44.0f, 30.0f}; }
+Rectangle campaignNextButton() { return {831.0f, 286.0f, 44.0f, 30.0f}; }
+
+std::string resolveContentPath(const std::string& relativePath) {
+    std::vector<std::filesystem::path> candidates;
+    candidates.emplace_back(std::filesystem::path{GetApplicationDirectory()} / relativePath);
+    std::error_code error;
+    const auto workingDirectory = std::filesystem::current_path(error);
+    if (!error) candidates.emplace_back(workingDirectory / relativePath);
+    if (std::string{STONEVEIL_SOURCE_DIR}.size() > 0) {
+        candidates.emplace_back(std::filesystem::path{STONEVEIL_SOURCE_DIR} / relativePath);
     }
-    return c;
+
+    for (const auto& path : candidates) {
+        if (std::filesystem::exists(path, error)) return path.string();
+        error.clear();
+    }
+
+    TraceLog(LOG_WARNING, "STONEVEIL: missing content file '%s'", relativePath.c_str());
+    for (const auto& path : candidates) {
+        const std::string nativePath = path.string();
+        TraceLog(LOG_WARNING, "STONEVEIL: searched '%s'", nativePath.c_str());
+    }
+    return candidates.empty() ? relativePath : candidates.front().string();
 }
 }
 
-Game::Game() {
-    InitWindow(ScreenW, ScreenH, "STONEVEIL v0.1");
+Game::Game() : Game(std::string{}) {}
+
+Game::Game(std::string levelPathOverride) {
+    InitWindow(ScreenW, ScreenH, STONEVEIL_BUILD_LABEL);
+    SetExitKey(KEY_NULL);
     SetTargetFPS(60);
-    reset();
+    audio_.initialize();
+    if (levelPathOverride.empty()) {
+        std::string campaignError;
+        if (CampaignIO::load(resolveContentPath("content/campaigns/stoneveil.campaign"), campaign_, campaignError) &&
+            !campaign_.levels.empty()) {
+            const auto start = std::find_if(campaign_.levels.begin(), campaign_.levels.end(), [this](const auto& entry) {
+                return entry.id == campaign_.startingLevelId;
+            });
+            campaignLevelIndex_ = start == campaign_.levels.end()
+                ? 0
+                : static_cast<int>(std::distance(campaign_.levels.begin(), start));
+            levelPath_ = resolveContentPath(campaign_.levels[static_cast<std::size_t>(campaignLevelIndex_)].path);
+        } else {
+            levelPath_ = resolveContentPath("content/levels/gatehouse.svl");
+        }
+    } else {
+        levelPath_ = std::move(levelPathOverride);
+    }
+    editor_ = std::make_unique<LevelEditor>(levelPath_);
+    resetWorld();
+    roster_.reset();
+    party_.clear();
     mode_ = Mode::Title;
 }
 
-void Game::reset() {
-    dungeon_ = Dungeon{};
-    px_ = 2;
-    py_ = 2;
-    dir_ = 1;
-    party_ = {{{"Vanguard", 42, 42, 9}, {"Ranger", 32, 32, 7}, {"Mystic", 27, 27, 6}}};
+void Game::resetWorld() {
+    LevelDefinition externalLevel;
+    std::string levelError;
+    resetWorld(LevelIO::load(levelPath_, externalLevel, levelError) ? externalLevel : levelOneDefinition());
+}
+
+void Game::resetWorld(const LevelDefinition& level) {
+    dungeon_ = Dungeon{level};
+    levelMusicPath_ = dungeon_.musicPath();
+    player_ = PlayerState{dungeon_.spawnX(), dungeon_.spawnY(), dungeon_.spawnDirection()};
     keys_ = 0;
     potions_ = 1;
     xp_ = 0;
-    attackCooldown_ = 0.0f;
+    combat_.reset();
     message_.clear();
     messageTimer_ = 0.0f;
+    if (!configureWorldEvents(dungeon_, events_))
+        TraceLog(LOG_ERROR, "STONEVEIL: duplicate or invalid compiled event identity");
+    storyMessages_.clear();
+    storyMessageTimer_ = 0.0f;
+    currentRoomId_.clear();
+}
+
+void Game::selectCampaignLevel(int delta) {
+    if (campaign_.levels.empty()) return;
+    const int count = static_cast<int>(campaign_.levels.size());
+    campaignLevelIndex_ = (campaignLevelIndex_ + delta + count) % count;
+    levelPath_ = resolveContentPath(campaign_.levels[static_cast<std::size_t>(campaignLevelIndex_)].path);
+    editor_ = std::make_unique<LevelEditor>(levelPath_);
+    resetWorld();
+    audio_.play(AudioCue::Turn);
+}
+
+void Game::prepareNewGame() {
+    const auto starters = starterCharacterIds();
+    selectedStarters_.clear();
+    if (!starters.empty()) selectedStarters_.push_back(starters.front());
+    starterCursor_ = 0;
+    enterMode(Mode::NewGame);
+}
+
+void Game::beginNewGame() {
+    if (selectedStarters_.empty() || selectedStarters_.size() > Party::InitialCapacity) return;
+    resetWorld();
+    editorPlaytest_ = false;
+    party_.reset();
+    if (!roster_.beginNewGame(selectedStarters_) || !party_.setMembers(selectedStarters_)) {
+        enterMode(Mode::Title);
+        return;
+    }
+    setMessage("The chosen descend into the Gatehouse.", 3.0f);
+    audio_.play(AudioCue::UiConfirm);
+    enterMode(Mode::Playing);
+}
+
+void Game::openEditor() {
+    editorPlaytest_ = false;
+    enterMode(Mode::Editor);
+}
+
+void Game::beginEditorPlaytest() {
+    if (editor_ == nullptr) return;
+    const auto starters = starterCharacterIds();
+    if (starters.empty()) return;
+    resetWorld(editor_->level());
+    party_.reset();
+    if (!roster_.beginNewGame(starters) || !party_.setMembers(starters)) {
+        enterMode(Mode::Editor);
+        return;
+    }
+    editorPlaytest_ = true;
+    setMessage("EDITOR PLAYTEST - ESC returns to the editor.", 4.0f);
+    audio_.play(AudioCue::UiConfirm);
+    enterMode(Mode::Playing);
+}
+
+void Game::toggleStarter(CharacterId id) {
+    const auto it = std::find(selectedStarters_.begin(), selectedStarters_.end(), id);
+    if (it != selectedStarters_.end()) {
+        selectedStarters_.erase(it);
+    } else if (selectedStarters_.size() < Party::InitialCapacity) {
+        selectedStarters_.push_back(id);
+    }
+}
+
+void Game::debugSetPartySize(int size) {
+    const auto starters = starterCharacterIds();
+    if (starters.empty()) return;
+    const int maximum = static_cast<int>(std::min<std::size_t>(starters.size(), Party::InitialCapacity));
+    const int clamped = std::clamp(size, 1, maximum);
+    const std::vector<CharacterId> chosen(starters.begin(), starters.begin() + clamped);
+
+    roster_.reset();
+    party_.reset();
+    if (!roster_.beginNewGame(chosen) || !party_.setMembers(chosen)) return;
+    combat_.reset();
+    gate_.reset();
+    setMessage("DEBUG: party size " + std::to_string(clamped) + ".", 2.0f);
 }
 
 void Game::run() {
-    while (!WindowShouldClose()) {
+    while (!WindowShouldClose() && !quitRequested_) {
         update(GetFrameTime());
+        audio_.update();
         draw();
     }
+    audio_.shutdown();
     CloseWindow();
 }
 
-void Game::update(float dt) {
-    if (messageTimer_ > 0.0f) messageTimer_ -= dt;
-    if (attackCooldown_ > 0.0f) attackCooldown_ -= dt;
+bool Game::captureUiSnapshots(const std::string& outputDirectory) {
+    std::error_code error;
+    const std::filesystem::path originalDirectory = std::filesystem::current_path(error);
+    if (error) {
+        audio_.shutdown();
+        CloseWindow();
+        return false;
+    }
+    const std::filesystem::path directory = std::filesystem::absolute(outputDirectory, error);
+    if (error) {
+        audio_.shutdown();
+        CloseWindow();
+        return false;
+    }
+    std::filesystem::create_directories(directory, error);
+    if (error) {
+        audio_.shutdown();
+        CloseWindow();
+        return false;
+    }
 
-    if (mode_ == Mode::Title) {
-        if (IsKeyPressed(KEY_ENTER)) {
-            reset();
-            mode_ = Mode::Playing;
+    const auto titlePath = directory / "title-menu.png";
+    const auto editorPath = directory / "dungeon-editor.png";
+    const auto lightDebugPath = directory / "lighting-debug.png";
+    const auto storyEditorPath = directory / "story-editor.png";
+    const auto gameplayPath = directory / "gameplay-lighting.png";
+    const auto rawWarmupPath = originalDirectory / "stoneveil-capture-warmup.png";
+    const auto rawTitlePath = originalDirectory / "stoneveil-title-menu.png";
+    const auto rawEditorPath = originalDirectory / "stoneveil-dungeon-editor.png";
+    const auto rawLightDebugPath = originalDirectory / "stoneveil-lighting-debug.png";
+    const auto rawStoryEditorPath = originalDirectory / "stoneveil-story-editor.png";
+    const auto rawGameplayPath = originalDirectory / "stoneveil-gameplay-lighting.png";
+
+    std::filesystem::remove(titlePath, error);
+    std::filesystem::remove(editorPath, error);
+    std::filesystem::remove(lightDebugPath, error);
+    std::filesystem::remove(storyEditorPath, error);
+    std::filesystem::remove(gameplayPath, error);
+    std::filesystem::remove(rawWarmupPath, error);
+    std::filesystem::remove(rawTitlePath, error);
+    std::filesystem::remove(rawEditorPath, error);
+    std::filesystem::remove(rawLightDebugPath, error);
+    std::filesystem::remove(rawStoryEditorPath, error);
+    std::filesystem::remove(rawGameplayPath, error);
+    error.clear();
+
+    draw();
+    draw();
+    TakeScreenshot("stoneveil-capture-warmup.png");
+    openEditor();
+    draw();
+    draw();
+    TakeScreenshot("stoneveil-dungeon-editor.png");
+    if (editor_ != nullptr) editor_->showLightsLayerForCapture();
+    draw();
+    draw();
+    TakeScreenshot("stoneveil-lighting-debug.png");
+    if (editor_ != nullptr) editor_->showStoryLayerForCapture();
+    draw();
+    draw();
+    TakeScreenshot("stoneveil-story-editor.png");
+    beginEditorPlaytest();
+    draw();
+    draw();
+    TakeScreenshot("stoneveil-gameplay-lighting.png");
+    enterMode(Mode::Title);
+    draw();
+    draw();
+    TakeScreenshot("stoneveil-title-menu.png");
+
+    std::filesystem::copy_file(rawTitlePath, titlePath,
+                               std::filesystem::copy_options::overwrite_existing, error);
+    if (!error) {
+        std::filesystem::copy_file(rawEditorPath, editorPath,
+                                   std::filesystem::copy_options::overwrite_existing, error);
+    }
+    if (!error) {
+        std::filesystem::copy_file(rawLightDebugPath, lightDebugPath,
+                                   std::filesystem::copy_options::overwrite_existing, error);
+    }
+    if (!error) {
+        std::filesystem::copy_file(rawStoryEditorPath, storyEditorPath,
+                                   std::filesystem::copy_options::overwrite_existing, error);
+    }
+    if (!error) {
+        std::filesystem::copy_file(rawGameplayPath, gameplayPath,
+                                   std::filesystem::copy_options::overwrite_existing, error);
+    }
+    const bool captured = !error && std::filesystem::exists(titlePath) &&
+        std::filesystem::exists(editorPath) && std::filesystem::exists(lightDebugPath) &&
+        std::filesystem::exists(storyEditorPath) &&
+        std::filesystem::exists(gameplayPath);
+    std::filesystem::remove(rawWarmupPath, error);
+    std::filesystem::remove(rawTitlePath, error);
+    std::filesystem::remove(rawEditorPath, error);
+    std::filesystem::remove(rawLightDebugPath, error);
+    std::filesystem::remove(rawStoryEditorPath, error);
+    std::filesystem::remove(rawGameplayPath, error);
+    audio_.shutdown();
+    CloseWindow();
+    return captured;
+}
+
+void Game::update(float dt) {
+    if (mode_ == Mode::Playing && !storyMessages_.empty()) {
+        storyMessageTimer_ -= dt;
+        if (storyMessageTimer_ <= 0.0f) {
+            storyMessages_.pop_front();
+            storyMessageTimer_ = 4.0f;
         }
-        if (IsKeyPressed(KEY_L) && load()) mode_ = Mode::Playing;
+    }
+    if (messageTimer_ > 0.0f) messageTimer_ -= dt;
+    if (IsKeyPressed(KEY_M)) {
+        audio_.toggleMuted();
+        setMessage(audio_.muted() ? "Audio muted." : "Audio enabled.", 1.4f);
+    }
+    if (mode_ == Mode::Title) {
+        if (IsKeyPressed(KEY_ESCAPE)) {
+            audio_.play(AudioCue::UiBack);
+            quitRequested_ = true;
+            return;
+        }
+        if (IsKeyPressed(KEY_ENTER)) {
+            audio_.play(AudioCue::UiConfirm);
+            prepareNewGame();
+            return;
+        }
+        if (IsKeyPressed(KEY_L) && load()) {
+            editorPlaytest_ = false;
+            enterMode(Mode::Playing);
+            return;
+        }
+        if (IsKeyPressed(KEY_E)) {
+            audio_.play(AudioCue::UiConfirm);
+            openEditor();
+            return;
+        }
+        if (IsKeyPressed(KEY_LEFT_BRACKET)) selectCampaignLevel(-1);
+        if (IsKeyPressed(KEY_RIGHT_BRACKET)) selectCampaignLevel(1);
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            const Vector2 mouse = GetMousePosition();
+            if (CheckCollisionPointRec(mouse, campaignPreviousButton())) selectCampaignLevel(-1);
+            else if (CheckCollisionPointRec(mouse, campaignNextButton())) selectCampaignLevel(1);
+            else if (CheckCollisionPointRec(mouse, titleButtonRectangle(0))) {
+                audio_.play(AudioCue::UiConfirm);
+                prepareNewGame();
+            }
+            else if (CheckCollisionPointRec(mouse, titleButtonRectangle(1))) {
+                if (load()) {
+                    editorPlaytest_ = false;
+                    enterMode(Mode::Playing);
+                }
+            } else if (CheckCollisionPointRec(mouse, titleButtonRectangle(2))) {
+                audio_.play(AudioCue::UiConfirm);
+                openEditor();
+            } else if (CheckCollisionPointRec(mouse, titleButtonRectangle(3))) {
+                audio_.play(AudioCue::UiBack);
+                quitRequested_ = true;
+            }
+        }
+        return;
+    }
+
+    if (mode_ == Mode::Editor) {
+        if (editor_ == nullptr) {
+            enterMode(Mode::Title);
+            return;
+        }
+        editor_->update();
+        if (editor_->consumeExitRequest()) {
+            audio_.play(AudioCue::UiBack);
+            enterMode(Mode::Title);
+        }
+        else if (editor_->consumePlaytestRequest()) beginEditorPlaytest();
+        return;
+    }
+
+    if (mode_ == Mode::NewGame) {
+        updateNewGame();
         return;
     }
 
     if (mode_ == Mode::Victory || mode_ == Mode::Defeat) {
-        if (IsKeyPressed(KEY_ENTER)) {
-            reset();
-            mode_ = Mode::Playing;
+        if (editorPlaytest_) {
+            if (IsKeyPressed(KEY_ENTER)) beginEditorPlaytest();
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                audio_.play(AudioCue::UiBack);
+                enterMode(Mode::Editor);
+            }
+        } else {
+            if (IsKeyPressed(KEY_ENTER)) prepareNewGame();
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                audio_.play(AudioCue::UiBack);
+                enterMode(Mode::Title);
+            }
         }
-        if (IsKeyPressed(KEY_ESCAPE)) mode_ = Mode::Title;
         return;
     }
 
     updatePlaying(dt);
 }
 
+void Game::updateNewGame() {
+    const auto starters = starterCharacterIds();
+    if (starters.empty()) {
+        enterMode(Mode::Title);
+        return;
+    }
+
+    if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) {
+        starterCursor_ = (starterCursor_ + static_cast<int>(starters.size()) - 1) % static_cast<int>(starters.size());
+        audio_.play(AudioCue::Turn);
+    }
+    if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) {
+        starterCursor_ = (starterCursor_ + 1) % static_cast<int>(starters.size());
+        audio_.play(AudioCue::Turn);
+    }
+    if (IsKeyPressed(KEY_SPACE)) {
+        toggleStarter(starters[static_cast<size_t>(starterCursor_)]);
+        audio_.play(AudioCue::UiConfirm);
+    }
+    if (IsKeyPressed(KEY_ONE)) {
+        toggleStarter(starters[0]);
+        audio_.play(AudioCue::UiConfirm);
+    }
+    if (starters.size() > 1 && IsKeyPressed(KEY_TWO)) {
+        toggleStarter(starters[1]);
+        audio_.play(AudioCue::UiConfirm);
+    }
+    if (starters.size() > 2 && IsKeyPressed(KEY_THREE)) {
+        toggleStarter(starters[2]);
+        audio_.play(AudioCue::UiConfirm);
+    }
+
+    const Vector2 mouse = GetMousePosition();
+    for (size_t i = 0; i < starters.size(); ++i) {
+        if (CheckCollisionPointRec(mouse, starterCardRectangle(static_cast<int>(i)))) {
+            starterCursor_ = static_cast<int>(i);
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                toggleStarter(starters[i]);
+                audio_.play(AudioCue::UiConfirm);
+            }
+        }
+    }
+
+    if (IsKeyPressed(KEY_ENTER) && !selectedStarters_.empty()) beginNewGame();
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        audio_.play(AudioCue::UiBack);
+        enterMode(Mode::Title);
+    }
+}
+
 void Game::updatePlaying(float dt) {
-    if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) move(1, 0);
-    if (IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN)) move(-1, 0);
-    if (IsKeyPressed(KEY_A)) move(0, -1);
-    if (IsKeyPressed(KEY_D)) move(0, 1);
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        audio_.play(AudioCue::UiBack);
+        enterMode(editorPlaytest_ ? Mode::Editor : Mode::Title);
+        return;
+    }
+    combat_.tick(dt);
+    gate_.tick(dt);
+
+    if (IsKeyPressed(KEY_F1)) debugSetPartySize(1);
+    if (IsKeyPressed(KEY_F2)) debugSetPartySize(2);
+    if (IsKeyPressed(KEY_F3)) debugSetPartySize(3);
+
+    // Held movement, not edge-triggered: the ActionGate provides the rhythm, so
+    // holding W steps at the tuned cadence instead of requiring key mashing.
+    if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) move(1, 0);
+    else if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) move(-1, 0);
+    else if (IsKeyDown(KEY_A)) move(0, -1);
+    else if (IsKeyDown(KEY_D)) move(0, 1);
     if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_Q)) turn(-1);
     if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_E)) turn(1);
-    if (IsKeyPressed(KEY_SPACE)) attack();
+    if (IsKeyDown(KEY_SPACE)) attack();
     if (IsKeyPressed(KEY_F)) interact();
     if (IsKeyPressed(KEY_H)) drinkPotion();
-    if (IsKeyPressed(KEY_F5)) save();
-    if (IsKeyPressed(KEY_F9)) load();
-    if (IsKeyPressed(KEY_ESCAPE)) mode_ = Mode::Title;
+    if (IsKeyPressed(KEY_F5)) {
+        const bool saved = !editorPlaytest_ && save();
+        setMessage(editorPlaytest_ ? "Game saves are disabled during editor playtests."
+                                   : (saved ? "Game saved." : "Save failed."));
+        audio_.play(saved ? AudioCue::Save : AudioCue::Error);
+    }
+    if (IsKeyPressed(KEY_F9)) {
+        if (editorPlaytest_) {
+            setMessage("Save loading is disabled during editor playtests.");
+            audio_.play(AudioCue::Error);
+        } else {
+            load();
+        }
+    }
 
-    updateEnemies(dt);
+    const auto enemyEvent = combat_.updateEnemies(dt, roster_, party_, dungeon_, player_);
+    if (enemyEvent.occurred()) setMessage(enemyEvent.message, enemyEvent.messageSeconds);
 
-    bool anyoneAlive = false;
-    for (const auto& member : party_) anyoneAlive = anyoneAlive || member.alive();
-    if (!anyoneAlive) mode_ = Mode::Defeat;
-    if (dungeon_.tile(px_, py_) == Tile::Exit) mode_ = Mode::Victory;
+    if (party_.empty()) enterMode(Mode::Defeat);
+    if (dungeon_.tile(player_.x(), player_.y()) == Tile::Exit) enterMode(Mode::Victory);
 }
 
 void Game::move(int forward, int strafe) {
-    const int rightDir = (dir_ + 1) % 4;
-    const int nx = px_ + DX[dir_] * forward + DX[rightDir] * strafe;
-    const int ny = py_ + DY[dir_] * forward + DY[rightDir] * strafe;
-    if (dungeon_.blocksMovement(nx, ny) || enemyAt(nx, ny)) {
+    if (!gate_.tryMove(combatTuning())) return;
+    const auto [nx, ny] = player_.movementTarget(forward, strafe);
+    if (dungeon_.blocksMovement(nx, ny) || combat_.enemyAt(dungeon_, nx, ny)) {
         setMessage("Something blocks the way.", 1.0f);
+        audio_.play(AudioCue::Bump);
         return;
     }
-    px_ = nx;
-    py_ = ny;
+    fireEvent({EventTriggerType::PlayerLeaveTile, player_.x(), player_.y()});
+    player_.moveTo(nx, ny);
+    audio_.play(AudioCue::Step);
+    fireStoryTrigger(TriggerEvent::EnterCell, nx, ny);
+    const auto* room = dungeon_.roomAt(nx, ny);
+    const std::string roomId = room == nullptr ? std::string{} : room->id;
+    if (room != nullptr && roomId != currentRoomId_) {
+        if (!fireStoryTrigger(TriggerEvent::EnterRoom, room->x, room->y, room->id)) {
+            // Purpose, mood, and intended feeling are private creator notes.
+            setMessage(room->name, 3.0f);
+        }
+    }
+    currentRoomId_ = roomId;
     collectPickup();
 }
 
 void Game::turn(int delta) {
-    dir_ = (dir_ + delta + 4) % 4;
+    // Turning has its own recovery and never consumes the attack gate.
+    if (!gate_.tryTurn(combatTuning())) return;
+    player_.turn(delta);
+    audio_.play(AudioCue::Turn);
 }
 
 void Game::interact() {
-    const int tx = px_ + DX[dir_];
-    const int ty = py_ + DY[dir_];
+    const auto [tx, ty] = player_.frontCell();
+    if (dungeon_.tile(tx, ty) == Tile::SecretDoorClosed) {
+        if (dungeon_.revealSecret(tx, ty)) {
+            setMessage("Loose stone gives way. A hidden niche opens.", 2.5f);
+            audio_.play(AudioCue::Secret);
+        }
+        return;
+    }
     if (dungeon_.tile(tx, ty) == Tile::DoorClosed) {
-        if (keys_ <= 0) {
-            setMessage("The iron lock needs a key.");
-            return;
+        const auto* door = dungeon_.doorAt(tx, ty);
+        if (door) fireEvent({EventTriggerType::InteractObject, tx, ty, door->id});
+        else setMessage("This door is missing its authored identity.");
+        return;
+    }
+    if (const auto* object = dungeon_.objectAt(tx, ty)) {
+        if (!fireStoryTrigger(TriggerEvent::InteractObject, tx, ty, object->id)) {
+            setMessage(object->text.empty() ? object->name : object->text, 4.0f);
         }
-        if (dungeon_.openDoor(tx, ty, true)) {
-            --keys_;
-            setMessage("The lock gives. The door opens.");
-        }
+        audio_.play(AudioCue::UiConfirm);
         return;
     }
     setMessage("Nothing here responds.", 1.0f);
+    audio_.play(AudioCue::Error);
 }
 
 void Game::attack() {
-    if (attackCooldown_ > 0.0f) return;
-    attackCooldown_ = 0.55f;
-    const int index = frontEnemyIndex(1);
-    if (index < 0) {
-        setMessage("Your weapons cut empty air.", 1.0f);
-        return;
+    if (!gate_.tryAttack(combatTuning())) return;
+    const int targetIndex = combat_.frontEnemyIndex(dungeon_, player_, 1);
+    std::string targetId;
+    int targetX{};
+    int targetY{};
+    if (targetIndex >= 0) {
+        const auto& target = dungeon_.enemies()[static_cast<std::size_t>(targetIndex)];
+        targetId = target.id;
+        targetX = target.x;
+        targetY = target.y;
     }
-
-    int damage = 0;
-    for (const auto& member : party_) if (member.alive()) damage += member.power;
-    damage = std::max(1, damage / 2 + GetRandomValue(0, 5));
-    auto& enemy = dungeon_.enemies()[static_cast<size_t>(index)];
-    enemy.hp -= damage;
-    if (enemy.hp <= 0) {
-        enemy.alive = false;
-        xp_ += 25;
-        setMessage("Enemy felled. +25 XP");
+    const auto event = combat_.partyAttack(roster_, party_, dungeon_, player_);
+    xp_ += event.xpGained;
+    if (event.occurred()) {
+        if (event.xpGained <= 0 || !fireStoryTrigger(TriggerEvent::KillEnemy, targetX, targetY, targetId)) {
+            setMessage(event.message, event.messageSeconds);
+        }
+        audio_.play(event.xpGained > 0 ? AudioCue::Kill :
+                    (event.message.find("empty air") != std::string::npos ? AudioCue::Attack : AudioCue::Hit));
     } else {
-        setMessage("Party strikes for " + std::to_string(damage) + ".", 1.2f);
+        audio_.play(AudioCue::Attack);
     }
 }
 
 void Game::drinkPotion() {
     if (potions_ <= 0) {
         setMessage("No healing draughts remain.");
+        audio_.play(AudioCue::Error);
         return;
     }
-    auto it = std::min_element(party_.begin(), party_.end(), [](const PartyMember& a, const PartyMember& b) {
-        const float ar = a.maxHp > 0 ? static_cast<float>(a.hp) / a.maxHp : 1.0f;
-        const float br = b.maxHp > 0 ? static_cast<float>(b.hp) / b.maxHp : 1.0f;
-        return ar < br;
-    });
-    if (it == party_.end() || it->hp >= it->maxHp) {
+    CharacterId targetId = InvalidCharacterId;
+    float lowestRatio = 1.0f;
+    for (const auto id : party_.members()) {
+        const auto* record = roster_.find(id);
+        const auto* definition = findCharacterDefinition(id);
+        if (record == nullptr || definition == nullptr || !record->alive()) continue;
+        const float ratio = static_cast<float>(record->hp) / definition->maxHp;
+        if (ratio < lowestRatio) {
+            lowestRatio = ratio;
+            targetId = id;
+        }
+    }
+    if (targetId == InvalidCharacterId) {
         setMessage("No one needs healing.");
+        audio_.play(AudioCue::Error);
         return;
     }
-    it->hp = std::min(it->maxHp, it->hp + 18);
+    roster_.heal(targetId, 18);
     --potions_;
-    setMessage(it->name + " drinks a healing draught.");
+    setMessage(findCharacterDefinition(targetId)->name + " drinks a healing draught.");
+    audio_.play(AudioCue::Heal);
 }
 
 void Game::collectPickup() {
     for (auto& pickup : dungeon_.pickups()) {
-        if (!pickup.taken && pickup.x == px_ && pickup.y == py_) {
+        if (!pickup.taken && pickup.x == player_.x() && pickup.y == player_.y()) {
             pickup.taken = true;
             if (pickup.type == Pickup::Type::Key) {
                 ++keys_;
@@ -191,92 +643,60 @@ void Game::collectPickup() {
                 ++potions_;
                 setMessage("You found a healing draught.");
             }
+            audio_.play(AudioCue::Pickup);
+            fireStoryTrigger(TriggerEvent::PickupItem, pickup.x, pickup.y, pickup.id);
         }
     }
 }
 
-bool Game::enemyAt(int x, int y, int ignoreIndex) const {
-    for (size_t i = 0; i < dungeon_.enemies().size(); ++i) {
-        const auto& enemy = dungeon_.enemies()[i];
-        if (static_cast<int>(i) != ignoreIndex && enemy.alive && enemy.x == x && enemy.y == y) return true;
-    }
-    return false;
+bool Game::fireStoryTrigger(TriggerEvent event, int x, int y, const std::string& subjectId) {
+    return fireEvent({eventTriggerType(event), x, y, subjectId}).eventsRun > 0;
 }
 
-int Game::frontEnemyIndex(int maxDistance) const {
-    int x = px_;
-    int y = py_;
-    for (int d = 1; d <= maxDistance; ++d) {
-        x += DX[dir_];
-        y += DY[dir_];
-        if (dungeon_.blocksSight(x, y)) return -1;
-        for (size_t i = 0; i < dungeon_.enemies().size(); ++i) {
-            const auto& enemy = dungeon_.enemies()[i];
-            if (enemy.alive && enemy.x == x && enemy.y == y) return static_cast<int>(i);
-        }
-    }
-    return -1;
+EventFireResult Game::fireEvent(const EventContext& context) {
+    WorldEventPresentation presentation;
+    presentation.message = [this](const std::string& text) {
+        if (storyMessages_.empty()) storyMessageTimer_ = 4.0f;
+        // Separate from transient combat/UI messages so a pickup or hit does
+        // not erase dialogue from the same frame.
+        storyMessages_.push_back(text);
+    };
+    presentation.cue = [this](WorldEventCue cue) {
+        audio_.play(cue == WorldEventCue::DoorOpened ? AudioCue::DoorOpen : AudioCue::DoorLocked);
+    };
+    return dispatchWorldEvent(events_, context, dungeon_, keys_, presentation);
 }
 
-void Game::updateEnemies(float dt) {
-    auto& enemies = dungeon_.enemies();
-    for (size_t i = 0; i < enemies.size(); ++i) {
-        auto& enemy = enemies[i];
-        if (!enemy.alive) continue;
-        enemy.attackCooldown = std::max(0.0f, enemy.attackCooldown - dt);
-        const int distance = std::abs(enemy.x - px_) + std::abs(enemy.y - py_);
-
-        if (distance == 1 && enemy.attackCooldown <= 0.0f) {
-            enemy.attackCooldown = 1.25f;
-            std::vector<int> living;
-            for (int p = 0; p < static_cast<int>(party_.size()); ++p) if (party_[p].alive()) living.push_back(p);
-            if (!living.empty()) {
-                const int target = living[static_cast<size_t>(GetRandomValue(0, static_cast<int>(living.size()) - 1))];
-                const int damage = GetRandomValue(3, 8);
-                party_[target].hp = std::max(0, party_[target].hp - damage);
-                setMessage(party_[target].name + " takes " + std::to_string(damage) + " damage.", 1.0f);
-            }
-            continue;
-        }
-
-        if (distance > 7 || enemy.attackCooldown > 0.5f) continue;
-        int nx = enemy.x;
-        int ny = enemy.y;
-        const int stepX = (px_ > enemy.x) - (px_ < enemy.x);
-        const int stepY = (py_ > enemy.y) - (py_ < enemy.y);
-        if (std::abs(px_ - enemy.x) >= std::abs(py_ - enemy.y)) nx += stepX;
-        else ny += stepY;
-
-        if (!dungeon_.blocksMovement(nx, ny) && !(nx == px_ && ny == py_) && !enemyAt(nx, ny, static_cast<int>(i))) {
-            enemy.x = nx;
-            enemy.y = ny;
-            enemy.attackCooldown = 0.65f;
-        }
-    }
+void Game::enterMode(Mode mode) {
+    if (mode_ == mode) return;
+    mode_ = mode;
+    if (mode_ == Mode::Playing) audio_.playMusic(levelMusicPath_);
+    else audio_.stopMusic();
+    if (mode_ == Mode::Victory) audio_.play(AudioCue::Victory);
+    if (mode_ == Mode::Defeat) audio_.play(AudioCue::Defeat);
 }
 
 bool Game::save() const {
-    std::ofstream out("stoneveil.sav", std::ios::trunc);
-    if (!out) return false;
-    out << px_ << ' ' << py_ << ' ' << dir_ << ' ' << keys_ << ' ' << potions_ << ' ' << xp_ << '\n';
-    for (const auto& p : party_) out << p.hp << ' ';
-    out << '\n';
-    for (const auto& e : dungeon_.enemies()) out << e.x << ' ' << e.y << ' ' << e.hp << ' ' << e.alive << '\n';
-    return true;
+    return SaveSystem::save("stoneveil.sav", player_, roster_, party_, dungeon_, keys_, potions_, xp_, &events_);
 }
 
 bool Game::load() {
-    std::ifstream in("stoneveil.sav");
-    if (!in) {
-        setMessage("No save file found.");
+    if (!SaveSystem::load("stoneveil.sav", player_, roster_, party_, dungeon_, keys_, potions_, xp_, &events_)) {
+        setMessage("No valid save file found.");
+        audio_.play(AudioCue::Error);
         return false;
     }
-    reset();
-    in >> px_ >> py_ >> dir_ >> keys_ >> potions_ >> xp_;
-    for (auto& p : party_) in >> p.hp;
-    for (auto& e : dungeon_.enemies()) in >> e.x >> e.y >> e.hp >> e.alive;
+    combat_.reset();
+    gate_.reset();
+    storyMessages_.clear();
+    storyMessageTimer_ = 0.0f;
+    const auto* room = dungeon_.roomAt(player_.x(), player_.y());
+    currentRoomId_ = room ? room->id : std::string{};
+    levelMusicPath_ = dungeon_.musicPath();
+    audio_.playMusic(levelMusicPath_);
     setMessage("Save loaded.");
-    return static_cast<bool>(in);
+    audio_.play(AudioCue::Save);
+    return true;
 }
 
 void Game::setMessage(std::string message, float seconds) {
@@ -288,8 +708,10 @@ void Game::draw() const {
     BeginDrawing();
     ClearBackground(Color{15, 16, 18, 255});
     if (mode_ == Mode::Title) drawTitle();
+    else if (mode_ == Mode::NewGame) drawNewGame();
     else if (mode_ == Mode::Victory) drawEndScreen(true);
     else if (mode_ == Mode::Defeat) drawEndScreen(false);
+    else if (mode_ == Mode::Editor && editor_ != nullptr) editor_->draw();
     else {
         drawWorld();
         drawHud();
@@ -298,100 +720,208 @@ void Game::draw() const {
 }
 
 void Game::drawWorld() const {
-    DrawRectangle(24, ViewY, ViewW, ViewH / 2, Color{29, 31, 37, 255});
-    DrawRectangle(24, ViewY + ViewH / 2, ViewW, ViewH / 2, Color{43, 37, 31, 255});
+    raycaster_.draw(dungeon_, player_);
 
-    const double posX = static_cast<double>(px_) + 0.5;
-    const double posY = static_cast<double>(py_) + 0.5;
-    const double dirX = static_cast<double>(DX[dir_]);
-    const double dirY = static_cast<double>(DY[dir_]);
-    const double planeX = -dirY * FovScale;
-    const double planeY = dirX * FovScale;
-
-    for (int x = 0; x < ViewW; ++x) {
-        const double cameraX = 2.0 * x / static_cast<double>(ViewW) - 1.0;
-        const double rayDirX = dirX + planeX * cameraX;
-        const double rayDirY = dirY + planeY * cameraX;
-        int mapX = static_cast<int>(std::floor(posX));
-        int mapY = static_cast<int>(std::floor(posY));
-        const double deltaX = rayDirX == 0.0 ? 1e30 : std::abs(1.0 / rayDirX);
-        const double deltaY = rayDirY == 0.0 ? 1e30 : std::abs(1.0 / rayDirY);
-        double sideDistX{};
-        double sideDistY{};
-        int stepX{};
-        int stepY{};
-        if (rayDirX < 0) { stepX = -1; sideDistX = (posX - mapX) * deltaX; }
-        else { stepX = 1; sideDistX = (mapX + 1.0 - posX) * deltaX; }
-        if (rayDirY < 0) { stepY = -1; sideDistY = (posY - mapY) * deltaY; }
-        else { stepY = 1; sideDistY = (mapY + 1.0 - posY) * deltaY; }
-
-        bool side = false;
-        Tile hitTile = Tile::Wall;
-        for (int guard = 0; guard < 64; ++guard) {
-            if (sideDistX < sideDistY) { sideDistX += deltaX; mapX += stepX; side = false; }
-            else { sideDistY += deltaY; mapY += stepY; side = true; }
-            hitTile = dungeon_.tile(mapX, mapY);
-            if (hitTile == Tile::Wall || hitTile == Tile::DoorClosed) break;
-        }
-
-        const double dist = side ? sideDistY - deltaY : sideDistX - deltaX;
-        const int lineH = static_cast<int>(ViewH / std::max(0.05, dist));
-        const int start = ViewY + std::max(0, (ViewH - lineH) / 2);
-        const int end = ViewY + std::min(ViewH - 1, (ViewH + lineH) / 2);
-        DrawLine(24 + x, start, 24 + x, end, wallColor(hitTile, side));
-    }
-
-    const int enemyIndex = frontEnemyIndex(6);
+    const int enemyIndex = combat_.frontEnemyIndex(dungeon_, player_, 6);
     if (enemyIndex >= 0) {
         const auto& enemy = dungeon_.enemies()[static_cast<size_t>(enemyIndex)];
-        const int dist = std::max(1, std::abs(enemy.x - px_) + std::abs(enemy.y - py_));
+        const int dist = std::max(1, std::abs(enemy.x - player_.x()) + std::abs(enemy.y - player_.y()));
         const int size = std::clamp(300 / dist, 55, 280);
         const int cx = 24 + ViewW / 2;
         const int cy = ViewY + ViewH / 2 + 45;
-        DrawRectangle(cx - size / 2, cy - size, size, size, Color{108, 28, 30, 255});
-        DrawRectangleLines(cx - size / 2, cy - size, size, size, Color{224, 169, 111, 255});
-        DrawText(TextFormat("FOE %d HP", enemy.hp), cx - 48, cy - size - 24, 18, RAYWHITE);
-    }
+        const EnemyDefinition& type = enemyTypeOrDefault(enemy.typeId);
 
-    DrawRectangleLines(24, ViewY, ViewW, ViewH, Color{139, 123, 89, 255});
+        // Placeholder telegraph: the body flares and a growing bar fills while
+        // the enemy is committed to a swing. Readable, and cheap to replace.
+        const Color body = enemy.winding ? Color{188, 62, 44, 255}
+                                         : (enemy.recoveryRemaining > 0.0f ? Color{74, 62, 74, 255}
+                                                                           : Color{108, 28, 30, 255});
+        DrawRectangle(cx - size / 2, cy - size, size, size, body);
+        DrawRectangleLines(cx - size / 2, cy - size, size, size,
+                           enemy.winding ? Color{255, 226, 150, 255} : Color{224, 169, 111, 255});
+        DrawText(TextFormat("%s  %d HP", type.name.c_str(), enemy.hp), cx - 60, cy - size - 24, 18, RAYWHITE);
+
+        if (enemy.winding) {
+            const float windup = std::max(0.01f, combatTuning().enemyAttackWindup * type.windupScale);
+            const float charged = std::clamp(1.0f - enemy.windupRemaining / windup, 0.0f, 1.0f);
+            DrawRectangle(cx - size / 2, cy + 8, size, 10, Color{48, 40, 38, 255});
+            DrawRectangle(cx - size / 2, cy + 8, static_cast<int>(size * charged), 10, Color{236, 182, 88, 255});
+            DrawText("WINDUP", cx - 30, cy + 24, 16, Color{255, 226, 150, 255});
+        } else if (enemy.recoveryRemaining > 0.0f) {
+            DrawText("RECOVERING", cx - 46, cy + 24, 16, Color{150, 208, 160, 255});
+        }
+    } else {
+        const WorldObject* visibleObject = nullptr;
+        int objectDistance = 0;
+        int x = player_.x();
+        int y = player_.y();
+        for (int distance = 1; distance <= 6; ++distance) {
+            x += PlayerState::directionX(player_.direction());
+            y += PlayerState::directionY(player_.direction());
+            if (dungeon_.blocksSight(x, y)) break;
+            visibleObject = dungeon_.objectAt(x, y);
+            if (visibleObject != nullptr) {
+                objectDistance = distance;
+                break;
+            }
+        }
+        if (visibleObject != nullptr) {
+            const int size = std::clamp(220 / std::max(1, objectDistance), 42, 190);
+            const int cx = 24 + ViewW / 2;
+            const int cy = ViewY + ViewH / 2 + 80;
+            Color body{104, 88, 74, 255};
+            const char* glyph = "P";
+            if (visibleObject->kind == WorldObjectKind::Shrine) { body = {122, 92, 151, 255}; glyph = "R"; }
+            else if (visibleObject->kind == WorldObjectKind::Note) { body = {190, 164, 102, 255}; glyph = "N"; }
+            else if (visibleObject->kind == WorldObjectKind::Corpse) { body = {89, 75, 72, 255}; glyph = "C"; }
+            else if (visibleObject->kind == WorldObjectKind::Npc) { body = {76, 105, 126, 255}; glyph = "@"; }
+            DrawRectangle(cx - size / 2, cy - size, size, size, body);
+            DrawRectangleLines(cx - size / 2, cy - size, size, size, Color{220, 193, 134, 255});
+            const int glyphSize = std::max(24, size / 2);
+            DrawText(glyph, cx - MeasureText(glyph, glyphSize) / 2, cy - size / 2 - glyphSize / 2,
+                     glyphSize, RAYWHITE);
+            const int nameWidth = MeasureText(visibleObject->name.c_str(), 18);
+            DrawText(visibleObject->name.c_str(), cx - nameWidth / 2, cy - size - 24, 18, RAYWHITE);
+        }
+    }
 }
 
 void Game::drawHud() const {
     const int panelX = 978;
-    DrawText("STONEVEIL", panelX, 38, 30, Color{221, 196, 139, 255});
-    DrawText(TextFormat("KEYS %d   DRAUGHTS %d", keys_, potions_), panelX, 84, 18, LIGHTGRAY);
-    DrawText(TextFormat("XP %d", xp_), panelX, 108, 18, LIGHTGRAY);
+    if (editorPlaytest_) DrawText("EDITOR PLAYTEST", panelX, 16, 15, Color{90, 165, 226, 255});
+    DrawText(dungeon_.name().c_str(), panelX, 42, 19, Color{221, 196, 139, 255});
+    DrawText(TextFormat("KEYS %d   DRAUGHTS %d", keys_, potions_), panelX, 78, 18, LIGHTGRAY);
+    DrawText(TextFormat("XP %d   PARTY %d/%d", xp_, static_cast<int>(party_.size()),
+                        static_cast<int>(party_.capacity())), panelX, 104, 18, LIGHTGRAY);
 
     int y = 154;
-    for (const auto& p : party_) {
-        DrawRectangle(panelX, y, 272, 92, Color{27, 29, 32, 255});
-        DrawRectangleLines(panelX, y, 272, 92, Color{91, 83, 65, 255});
-        DrawText(p.name.c_str(), panelX + 12, y + 10, 21, RAYWHITE);
-        DrawText(TextFormat("HP %d / %d", p.hp, p.maxHp), panelX + 12, y + 39, 18, p.alive() ? Color{170, 212, 151, 255} : Color{190, 70, 70, 255});
-        const float ratio = p.maxHp ? static_cast<float>(p.hp) / p.maxHp : 0.0f;
-        DrawRectangle(panelX + 12, y + 65, 240, 10, Color{48, 45, 42, 255});
-        DrawRectangle(panelX + 12, y + 65, static_cast<int>(240 * std::clamp(ratio, 0.0f, 1.0f)), 10, Color{135, 52, 48, 255});
-        y += 104;
+    const bool compactCards = party_.size() > Party::InitialCapacity;
+    const int cardHeight = compactCards ? 48 : 92;
+    const int cardStep = compactCards ? 56 : 104;
+    for (const auto id : party_.members()) {
+        const auto* record = roster_.find(id);
+        const auto* definition = findCharacterDefinition(id);
+        if (record == nullptr || definition == nullptr) continue;
+        DrawRectangle(panelX, y, 272, cardHeight, Color{27, 29, 32, 255});
+        DrawRectangleLines(panelX, y, 272, cardHeight, Color{91, 83, 65, 255});
+        DrawText(definition->name.c_str(), panelX + 12, y + (compactCards ? 7 : 10), compactCards ? 17 : 21, RAYWHITE);
+        DrawText(TextFormat("HP %d / %d", record->hp, definition->maxHp),
+                 panelX + (compactCards ? 142 : 12), y + (compactCards ? 8 : 39),
+                 compactCards ? 15 : 18, Color{170, 212, 151, 255});
+        const float ratio = definition->maxHp ? static_cast<float>(record->hp) / definition->maxHp : 0.0f;
+        const int barY = y + (compactCards ? 33 : 65);
+        DrawRectangle(panelX + 12, barY, 240, compactCards ? 7 : 10, Color{48, 45, 42, 255});
+        DrawRectangle(panelX + 12, barY, static_cast<int>(240 * std::clamp(ratio, 0.0f, 1.0f)),
+                      compactCards ? 7 : 10, Color{135, 52, 48, 255});
+        y += cardStep;
     }
 
-    DrawText("W/S move   A/D strafe", panelX, 492, 16, GRAY);
-    DrawText("Q/E or arrows turn", panelX, 514, 16, GRAY);
-    DrawText("SPACE attack   F interact", panelX, 536, 16, GRAY);
-    DrawText("H heal   F5 save   F9 load", panelX, 558, 16, GRAY);
+    {
+        const auto& pick = combat_.lastMeleeTarget();
+        const auto* targetDefinition = findCharacterDefinition(pick.target);
+        const int debugY = y + 2;
+        DrawText(TextFormat("TARGETING  %s  (n=%d)",
+                            targetDefinition != nullptr ? targetDefinition->name.c_str() : "-",
+                            combat_.meleeResolutions()),
+                 panelX, debugY, 15, Color{150, 208, 160, 255});
+        DrawText(TextFormat("GATE  mv %.2f  atk %.2f  (%d/%d)",
+                            static_cast<double>(gate_.moveRemaining()),
+                            static_cast<double>(gate_.attackRemaining()),
+                            gate_.movesTaken(), gate_.movesBlocked()),
+                 panelX, debugY + 20, 15, Color{150, 208, 160, 255});
+        DrawText("F1/F2/F3 debug party size", panelX, debugY + 40, 15, GRAY);
+        DrawText("W/S move   A/D strafe", panelX, debugY + 68, 16, GRAY);
+        DrawText("Q/E or arrows turn", panelX, debugY + 90, 16, GRAY);
+        DrawText("SPACE attack   F interact", panelX, debugY + 112, 16, GRAY);
+        DrawText(editorPlaytest_ ? "H heal   ESC return to editor" : "H heal   F5 save   F9 load",
+                 panelX, debugY + 134, 16, GRAY);
+    }
 
-    if (messageTimer_ > 0.0f && !message_.empty()) {
+    if (!storyMessages_.empty() || (messageTimer_ > 0.0f && !message_.empty())) {
         DrawRectangle(24, 610, ViewW, 74, Color{11, 12, 14, 235});
         DrawRectangleLines(24, 610, ViewW, 74, Color{91, 83, 65, 255});
-        DrawText(message_.c_str(), 44, 635, 21, Color{224, 217, 194, 255});
+        const auto& shown = storyMessages_.empty() ? message_ : storyMessages_.front();
+        DrawText(shown.c_str(), 44, 635, 21, Color{224, 217, 194, 255});
     }
 }
 
 void Game::drawTitle() const {
-    DrawText("STONEVEIL", 430, 190, 64, Color{220, 193, 134, 255});
-    DrawText("A SYSTEMS-FIRST DUNGEON CRAWLER", 417, 272, 22, LIGHTGRAY);
-    DrawText("ENTER  descend", 545, 380, 22, RAYWHITE);
-    DrawText("L      load save", 545, 416, 22, RAYWHITE);
-    DrawText("Early prototype - placeholder presentation", 433, 520, 18, GRAY);
+    DrawText("STONEVEIL", 430, 132, 64, Color{220, 193, 134, 255});
+    DrawText("A SYSTEMS-FIRST DUNGEON CRAWLER", 417, 218, 22, LIGHTGRAY);
+    DrawText(STONEVEIL_BUILD_LABEL, 504, 254, 16, Color{90, 165, 226, 255});
+    if (!campaign_.levels.empty()) {
+        const auto& level = campaign_.levels[static_cast<std::size_t>(campaignLevelIndex_)];
+        DrawRectangleRec(campaignPreviousButton(), Color{29, 31, 35, 255});
+        DrawRectangleRec(campaignNextButton(), Color{29, 31, 35, 255});
+        DrawRectangleLinesEx(campaignPreviousButton(), 1.0f, Color{91, 83, 65, 255});
+        DrawRectangleLinesEx(campaignNextButton(), 1.0f, Color{91, 83, 65, 255});
+        DrawText("<", 420, 290, 20, LIGHTGRAY);
+        DrawText(">", 846, 290, 20, LIGHTGRAY);
+        const std::string label = TextFormat("LEVEL %d/%d  %s", campaignLevelIndex_ + 1,
+                                             static_cast<int>(campaign_.levels.size()), level.name.c_str());
+        const int width = MeasureText(label.c_str(), 17);
+        DrawText(label.c_str(), 640 - width / 2, 292, 17, Color{172, 165, 145, 255});
+    }
+
+    static constexpr std::array<const char*, 4> labels = {
+        "NEW GAME", "LOAD GAME", "DUNGEON EDITOR", "QUIT",
+    };
+    static constexpr std::array<const char*, 4> shortcuts = {
+        "ENTER", "L", "E", "ESC",
+    };
+    const Vector2 mouse = GetMousePosition();
+    for (int index = 0; index < static_cast<int>(labels.size()); ++index) {
+        const Rectangle button = titleButtonRectangle(index);
+        const bool hovered = CheckCollisionPointRec(mouse, button);
+        DrawRectangleRec(button, hovered ? Color{64, 59, 49, 255} : Color{29, 31, 35, 255});
+        DrawRectangleLinesEx(button, hovered ? 2.0f : 1.0f,
+                             hovered ? Color{220, 193, 134, 255} : Color{91, 83, 65, 255});
+        DrawText(labels[static_cast<std::size_t>(index)], static_cast<int>(button.x) + 20,
+                 static_cast<int>(button.y) + 13, 21, hovered ? RAYWHITE : LIGHTGRAY);
+        const int shortcutWidth = MeasureText(shortcuts[static_cast<std::size_t>(index)], 15);
+        DrawText(shortcuts[static_cast<std::size_t>(index)],
+                 static_cast<int>(button.x + button.width) - shortcutWidth - 18,
+                 static_cast<int>(button.y) + 16, 15, GRAY);
+    }
+    DrawText("One application: play, build, test, refine.", 464, 604, 18, GRAY);
+}
+
+void Game::drawNewGame() const {
+    const auto starters = starterCharacterIds();
+    DrawText("CHOOSE WHO DESCENDS", 372, 62, 42, Color{220, 193, 134, 255});
+    DrawText("Select one, two, or all three. Death will be permanent.", 339, 122, 20, LIGHTGRAY);
+
+    for (size_t i = 0; i < starters.size(); ++i) {
+        const auto* definition = findCharacterDefinition(starters[i]);
+        if (definition == nullptr) continue;
+        const Rectangle card = starterCardRectangle(static_cast<int>(i));
+        const bool selected = std::find(selectedStarters_.begin(), selectedStarters_.end(), starters[i]) != selectedStarters_.end();
+        const bool focused = starterCursor_ == static_cast<int>(i);
+        const Color fill = selected ? Color{48, 55, 52, 255} : Color{26, 28, 32, 255};
+        const Color border = selected ? Color{176, 145, 82, 255} : (focused ? Color{108, 119, 126, 255} : Color{72, 68, 61, 255});
+        DrawRectangleRec(card, fill);
+        DrawRectangleLinesEx(card, focused ? 4.0f : 2.0f, border);
+
+        DrawRectangle(static_cast<int>(card.x) + 24, static_cast<int>(card.y) + 26, 72, 72,
+                      selected ? Color{115, 48, 46, 255} : Color{55, 56, 59, 255});
+        DrawText(TextFormat("%d", static_cast<int>(i + 1)), static_cast<int>(card.x) + 51, static_cast<int>(card.y) + 48, 28, RAYWHITE);
+        DrawText(definition->name.c_str(), static_cast<int>(card.x) + 116, static_cast<int>(card.y) + 26, 27, RAYWHITE);
+        DrawText(definition->role.c_str(), static_cast<int>(card.x) + 116, static_cast<int>(card.y) + 64, 18,
+                 Color{172, 165, 145, 255});
+        DrawText(TextFormat("HP  %d", definition->maxHp), static_cast<int>(card.x) + 26, static_cast<int>(card.y) + 132, 21, LIGHTGRAY);
+        DrawText(TextFormat("POWER  %d", definition->power), static_cast<int>(card.x) + 176, static_cast<int>(card.y) + 132, 21, LIGHTGRAY);
+        DrawText(definition->summary.c_str(), static_cast<int>(card.x) + 26, static_cast<int>(card.y) + 190, 16,
+                 Color{190, 188, 179, 255});
+        DrawText(selected ? "SELECTED" : "AVAILABLE", static_cast<int>(card.x) + 26, static_cast<int>(card.y) + 310, 20,
+                 selected ? Color{190, 214, 167, 255} : GRAY);
+    }
+
+    DrawText("1 / 2 / 3 or click: toggle    LEFT / RIGHT: focus", 325, 592, 19, GRAY);
+    if (selectedStarters_.empty()) {
+        DrawText("Choose at least one character to begin.", 428, 640, 20, Color{196, 92, 76, 255});
+    } else {
+        DrawText(TextFormat("ENTER  begin with %d    ESC  back", static_cast<int>(selectedStarters_.size())), 456, 640, 20, RAYWHITE);
+    }
 }
 
 void Game::drawEndScreen(bool won) const {
@@ -399,7 +929,8 @@ void Game::drawEndScreen(bool won) const {
     const Color color = won ? Color{211, 187, 126, 255} : Color{170, 66, 64, 255};
     DrawText(title, 390, 240, 46, color);
     DrawText(won ? "You reached the first prototype exit." : "The dungeon keeps what it kills.", 420, 318, 21, LIGHTGRAY);
-    DrawText("ENTER restart    ESC title", 480, 410, 20, RAYWHITE);
+    DrawText(editorPlaytest_ ? "ENTER replay    ESC return to editor" : "ENTER restart    ESC title",
+             editorPlaytest_ ? 430 : 480, 410, 20, RAYWHITE);
 }
 
 } // namespace sv

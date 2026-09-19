@@ -1,0 +1,9 @@
+STONEVEIL_CAMPAIGN 1
+ID "campaign.stoneveil"
+NAME "STONEVEIL"
+START "gatehouse.level-1"
+LEVELS 3
+"gatehouse.level-1" "THE GATEHOUSE" "content/levels/gatehouse.svl"
+"test.pressure-cooker" "PRESSURE COOKER" "content/levels/pressure-cooker.svl"
+"test.systems-01" "SYSTEMS TEST" "content/levels/systems-test.svl"
+END

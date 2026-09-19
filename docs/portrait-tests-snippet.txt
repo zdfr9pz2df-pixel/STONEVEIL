@@ -1,0 +1,94 @@
+// Scratch verification for the portrait resolver. Mirrors the block that should
+// be appended to tests/CoreTests.cpp once that file is free.
+#include "Portrait.hpp"
+#include <cstdio>
+#include <iostream>
+#include <vector>
+
+#define CHECK(e) do { if (!(e)) { std::cerr << "FAIL line " << __LINE__ << ": " #e << '\n'; return 1; } } while (false)
+
+int main() {
+    using namespace sv;
+
+    CHECK(!portraitStateCatalog().empty());
+    CHECK(findPortraitState("portrait.hit") != nullptr);
+    CHECK(findPortraitState("portrait.not-real") == nullptr);
+
+    // Every tier-0 state must terminate its fallback chain inside tier 0, and no
+    // chain may dangle on an unknown id.
+    for (const auto& state : portraitStateCatalog()) {
+        if (state.fallbackId.empty()) continue;
+        CHECK(findPortraitState(state.fallbackId) != nullptr);
+    }
+
+    // Moods: highest matching priority wins.
+    PortraitTrack track;
+    PortraitConditions healthy{false, 40, 40, false, false};
+    CHECK(track.resolve(healthy) == "portrait.idle");
+
+    PortraitConditions dark{false, 40, 40, false, true};
+    CHECK(track.resolve(dark) == "portrait.peering");
+
+    PortraitConditions darkWithEnemy{false, 40, 40, true, true};
+    CHECK(track.resolve(darkWithEnemy) == "portrait.alert");
+
+    PortraitConditions wounded{false, 20, 40, false, false};
+    CHECK(track.resolve(wounded) == "portrait.wounded");
+
+    // Alert outranks a light wound but never outranks critical.
+    PortraitConditions woundedFighting{false, 20, 40, true, false};
+    CHECK(track.resolve(woundedFighting) == "portrait.alert");
+    PortraitConditions criticalFighting{false, 4, 40, true, false};
+    CHECK(track.resolve(criticalFighting) == "portrait.critical");
+
+    PortraitConditions dead{true, 0, 40, true, false};
+    CHECK(track.resolve(dead) == "portrait.dead");
+
+    // Reflexes interrupt moods and expire back to them.
+    CHECK(track.trigger("portrait.hit"));
+    CHECK(track.resolve(healthy) == "portrait.hit");
+    track.tick(0.3f);
+    CHECK(track.resolve(healthy) == "portrait.hit");
+    track.tick(0.4f);
+    CHECK(track.resolve(healthy) == "portrait.idle");
+
+    // Death outranks a running reflex.
+    CHECK(track.trigger("portrait.hit"));
+    CHECK(track.resolve(dead) == "portrait.dead");
+    track.clear();
+
+    // A lower-priority reflex cannot stomp a higher one; the reverse can.
+    CHECK(track.trigger("portrait.hit"));
+    CHECK(!track.trigger("portrait.talking"));
+    CHECK(track.resolve(healthy) == "portrait.hit");
+    CHECK(track.trigger("portrait.ally-down"));
+    CHECK(track.resolve(healthy) == "portrait.ally-down");
+
+    // Moods are not triggerable as reflexes.
+    CHECK(!track.trigger("portrait.idle"));
+
+    // Fallback walks to whatever art actually exists.
+    const std::vector<std::string> tierZero = {
+        "portrait.dead", "portrait.idle", "portrait.alert",
+        "portrait.wounded", "portrait.critical", "portrait.hit",
+    };
+    CHECK(resolvePortraitFallback("portrait.hurt-badly", tierZero) == "portrait.hit");
+    CHECK(resolvePortraitFallback("portrait.spell-fizzle", tierZero) == "portrait.alert");
+    CHECK(resolvePortraitFallback("portrait.peering", tierZero) == "portrait.idle");
+    CHECK(resolvePortraitFallback("portrait.alert", tierZero) == "portrait.alert");
+    CHECK(resolvePortraitFallback("portrait.not-real", tierZero).empty());
+    CHECK(resolvePortraitFallback("portrait.idle", {}).empty());
+
+    // Bark cooldown gates repeats but lets the first one through.
+    PortraitTrack barks;
+    CHECK(barks.requestBark("portrait.alert"));
+    CHECK(!barks.requestBark("portrait.alert"));
+    barks.tick(3.0f);
+    CHECK(!barks.requestBark("portrait.alert"));
+    barks.tick(3.5f);
+    CHECK(barks.requestBark("portrait.alert"));
+    CHECK(!barks.requestBark("portrait.not-real"));
+
+    std::printf("portrait tests passed (%zu states)\n", portraitStateCatalog().size());
+    return 0;
+}

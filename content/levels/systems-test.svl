@@ -1,0 +1,28 @@
+STONEVEIL_LEVEL 2
+ID "test.systems-01"
+NAME "SYSTEMS TEST 01"
+SIZE 8 8
+SPAWN 1 1 2
+DEFAULT_WALL "material.wall.cave.mossy-rock"
+DEFAULT_FLOOR "material.floor.cave.uneven-stone"
+CEILING_MODE MATERIAL
+DEFAULT_CEILING "material.ceiling.cave.rocky"
+MAP
+########
+#...##.#
+#...D..#
+#...##.#
+#...##.#
+#...##.#
+#...##E#
+########
+END_MAP
+PICKUPS 1
+KEY 3 6
+ENEMIES 1
+2 4 18
+SURFACE_OVERRIDES 0
+LIGHTS 2
+4 1 "light.torch.iron-sconce"
+5 5 "light.torch.tallow-candle"
+END
