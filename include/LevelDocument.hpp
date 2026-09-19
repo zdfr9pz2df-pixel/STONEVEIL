@@ -18,6 +18,7 @@ public:
     bool open(const std::string& path, std::string& error);
     bool save(std::string& error);
     bool saveCopy(const std::string& directory, std::string& error);
+    bool saveCopyTo(const std::string& path, std::string& error);
     void replaceUntitled(LevelDefinition level);
     void beginEdit();
     bool undo();

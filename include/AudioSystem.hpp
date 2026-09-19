@@ -41,6 +41,7 @@ public:
     void play(AudioCue cue);
     void playMusic(const std::string& relativePath);
     void stopMusic();
+    void setContentRoot(std::string root) { stopMusic(); contentRoot_ = std::move(root); }
     void setMuted(bool muted);
     void toggleMuted();
 
@@ -57,6 +58,7 @@ private:
     std::unordered_map<AudioCue, Sound> sounds_;
     Music music_{};
     std::string currentMusicPath_;
+    std::string contentRoot_;
     bool initialized_{false};
     bool muted_{false};
     bool musicLoaded_{false};

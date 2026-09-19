@@ -23,6 +23,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path playtest | Out-Null
           Copy-Item build/bin/Release/stoneveil.exe playtest/stoneveil.exe
+          Copy-Item build/bin/Release/stoneveil.stoneveil playtest/stoneveil.stoneveil
           Copy-Item build/bin/Release/content playtest/content -Recurse
       - name: Upload Windows playtest
         uses: actions/upload-artifact@v4

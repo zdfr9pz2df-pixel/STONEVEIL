@@ -24,6 +24,7 @@ class Game {
 public:
     Game();
     explicit Game(std::string levelPathOverride);
+    Game(std::string levelPathOverride, std::string projectFile, bool runtimeOnly);
     void run();
     bool captureUiSnapshots(const std::string& outputDirectory);
 
@@ -40,6 +41,7 @@ private:
     void debugSetPartySize(int size);
     void selectCampaignLevel(int delta);
     void requestQuit();
+    void adoptEditorProject();
     bool fireStoryTrigger(TriggerEvent event, int x, int y, const std::string& subjectId = {});
     EventFireResult fireEvent(const EventContext& context);
     void update(float dt);
@@ -76,6 +78,9 @@ private:
     CampaignDefinition campaign_{};
     int campaignLevelIndex_{0};
     std::string levelPath_;
+    std::string projectFile_;
+    std::string contentRoot_;
+    bool runtimeOnly_{false};
     std::string levelMusicPath_;
     bool editorPlaytest_{false};
     bool quitRequested_{false};

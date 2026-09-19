@@ -84,12 +84,30 @@ std::string resolveContentPath(const std::string& relativePath) {
 
 Game::Game() : Game(std::string{}) {}
 
-Game::Game(std::string levelPathOverride) {
+Game::Game(std::string levelPathOverride) : Game(std::move(levelPathOverride), {}, false) {}
+
+Game::Game(std::string levelPathOverride, std::string projectFile, bool runtimeOnly)
+    : projectFile_(std::move(projectFile)), runtimeOnly_(runtimeOnly) {
     InitWindow(ScreenW, ScreenH, STONEVEIL_BUILD_LABEL);
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
     audio_.initialize();
-    if (levelPathOverride.empty()) {
+    if (!projectFile_.empty()) {
+        ProjectDocument project;
+        std::string error;
+        if (project.open(projectFile_, error)) {
+            campaign_ = project.campaign();
+            contentRoot_ = project.root();
+            levelPath_ = project.levelPath(campaign_.startingLevelId);
+            for (std::size_t i = 0; i < campaign_.levels.size(); ++i)
+                if (campaign_.levels[i].id == campaign_.startingLevelId) campaignLevelIndex_ = static_cast<int>(i);
+            raycaster_.setContentRoot(contentRoot_);
+            audio_.setContentRoot(contentRoot_);
+        } else {
+            TraceLog(LOG_ERROR, "STONEVEIL: project failed to open: %s", error.c_str());
+            quitRequested_ = true;
+        }
+    } else if (levelPathOverride.empty()) {
         std::string campaignError;
         if (CampaignIO::load(resolveContentPath("content/campaigns/stoneveil.campaign"), campaign_, campaignError) &&
             !campaign_.levels.empty()) {
@@ -106,7 +124,7 @@ Game::Game(std::string levelPathOverride) {
     } else {
         levelPath_ = std::move(levelPathOverride);
     }
-    editor_ = std::make_unique<LevelEditor>(levelPath_);
+    editor_ = std::make_unique<LevelEditor>(levelPath_, projectFile_);
     resetWorld();
     roster_.reset();
     party_.clear();
@@ -116,7 +134,11 @@ Game::Game(std::string levelPathOverride) {
 void Game::resetWorld() {
     LevelDefinition externalLevel;
     std::string levelError;
-    resetWorld(LevelIO::load(levelPath_, externalLevel, levelError) ? externalLevel : levelOneDefinition());
+    if (LevelIO::load(levelPath_, externalLevel, levelError)) resetWorld(externalLevel);
+    else if (!projectFile_.empty()) {
+        TraceLog(LOG_ERROR, "STONEVEIL: project level failed to load: %s", levelError.c_str());
+        quitRequested_ = true;
+    } else resetWorld(levelOneDefinition());
 }
 
 void Game::resetWorld(const LevelDefinition& level) {
@@ -137,6 +159,7 @@ void Game::resetWorld(const LevelDefinition& level) {
 }
 
 void Game::selectCampaignLevel(int delta) {
+    if (runtimeOnly_) return;
     if (campaign_.levels.empty()) return;
     if (editor_ && editor_->hasUnsavedChanges()) {
         openEditor();
@@ -144,8 +167,9 @@ void Game::selectCampaignLevel(int delta) {
     }
     const int count = static_cast<int>(campaign_.levels.size());
     campaignLevelIndex_ = (campaignLevelIndex_ + delta + count) % count;
-    levelPath_ = resolveContentPath(campaign_.levels[static_cast<std::size_t>(campaignLevelIndex_)].path);
-    editor_ = std::make_unique<LevelEditor>(levelPath_);
+    const auto& relative = campaign_.levels[static_cast<std::size_t>(campaignLevelIndex_)].path;
+    levelPath_ = contentRoot_.empty() ? resolveContentPath(relative) : (std::filesystem::path{contentRoot_} / relative).string();
+    editor_ = std::make_unique<LevelEditor>(levelPath_, projectFile_);
     resetWorld();
     audio_.play(AudioCue::Turn);
 }
@@ -173,12 +197,14 @@ void Game::beginNewGame() {
 }
 
 void Game::openEditor() {
+    if (runtimeOnly_) return;
     editorPlaytest_ = false;
     enterMode(Mode::Editor);
 }
 
 void Game::beginEditorPlaytest() {
     if (editor_ == nullptr) return;
+    adoptEditorProject();
     const auto starters = starterCharacterIds();
     if (starters.empty()) return;
     resetWorld(editor_->level());
@@ -191,6 +217,21 @@ void Game::beginEditorPlaytest() {
     setMessage("EDITOR PLAYTEST - ESC returns to the editor.", 4.0f);
     audio_.play(AudioCue::UiConfirm);
     enterMode(Mode::Playing);
+}
+
+void Game::adoptEditorProject() {
+    if (!editor_) return;
+    if (editor_->project().isOpen()) {
+        projectFile_ = editor_->project().path();
+        contentRoot_ = editor_->project().root();
+        campaign_ = editor_->project().campaign();
+        campaignLevelIndex_ = 0;
+        for (std::size_t i = 0; i < campaign_.levels.size(); ++i)
+            if (campaign_.levels[i].id == editor_->level().id) campaignLevelIndex_ = static_cast<int>(i);
+        raycaster_.setContentRoot(contentRoot_);
+        audio_.setContentRoot(contentRoot_);
+    }
+    if (!editor_->levelPath().empty()) levelPath_ = editor_->levelPath();
 }
 
 void Game::toggleStarter(CharacterId id) {
@@ -289,6 +330,16 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     draw();
     draw();
     TakeScreenshot("stoneveil-dungeon-editor.png");
+    if (!runtimeOnly_ && editor_ != nullptr) {
+        editor_->showProjectPanelForCapture(true);
+        draw();
+        draw();
+        TakeScreenshot("stoneveil-project-panel.png");
+        std::filesystem::copy_file(originalDirectory / "stoneveil-project-panel.png", directory / "project-panel.png",
+                                  std::filesystem::copy_options::overwrite_existing, error);
+        std::filesystem::remove(originalDirectory / "stoneveil-project-panel.png", error);
+        editor_->showProjectPanelForCapture(false);
+    }
     if (editor_ != nullptr) editor_->showLightsLayerForCapture();
     draw();
     draw();
@@ -297,7 +348,10 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     draw();
     draw();
     TakeScreenshot("stoneveil-story-editor.png");
-    beginEditorPlaytest();
+    if (runtimeOnly_) {
+        prepareNewGame();
+        beginNewGame();
+    } else beginEditorPlaytest();
     draw();
     draw();
     TakeScreenshot("stoneveil-gameplay-lighting.png");
@@ -408,7 +462,8 @@ void Game::update(float dt) {
         if (editor_->consumeQuitRequest()) { quitRequested_ = true; return; }
         if (editor_->consumeExitRequest()) {
             // A dirty Exit can only arrive after explicit Discard confirmation.
-            if (editor_->hasUnsavedChanges()) editor_ = std::make_unique<LevelEditor>(levelPath_);
+            if (editor_->hasUnsavedChanges()) editor_ = std::make_unique<LevelEditor>(levelPath_, projectFile_);
+            adoptEditorProject();
             audio_.play(AudioCue::UiBack);
             enterMode(Mode::Title);
         }
@@ -500,9 +555,9 @@ void Game::updatePlaying(float dt) {
     combat_.tick(dt);
     gate_.tick(dt);
 
-    if (IsKeyPressed(KEY_F1)) debugSetPartySize(1);
-    if (IsKeyPressed(KEY_F2)) debugSetPartySize(2);
-    if (IsKeyPressed(KEY_F3)) debugSetPartySize(3);
+    if (!runtimeOnly_ && IsKeyPressed(KEY_F1)) debugSetPartySize(1);
+    if (!runtimeOnly_ && IsKeyPressed(KEY_F2)) debugSetPartySize(2);
+    if (!runtimeOnly_ && IsKeyPressed(KEY_F3)) debugSetPartySize(3);
 
     // Held movement, not edge-triggered: the ActionGate provides the rhythm, so
     // holding W steps at the tuned cadence instead of requiring key mashing.
@@ -693,11 +748,16 @@ void Game::enterMode(Mode mode) {
 }
 
 bool Game::save() const {
-    return SaveSystem::save("stoneveil.sav", player_, roster_, party_, dungeon_, keys_, potions_, xp_, &events_);
+    const auto file = contentRoot_.empty() ? std::filesystem::path{"stoneveil.sav"} : std::filesystem::path{contentRoot_} / "saves/game.sav";
+    std::error_code error;
+    if (!file.parent_path().empty()) std::filesystem::create_directories(file.parent_path(), error);
+    if (error) return false;
+    return SaveSystem::save(file.string(), player_, roster_, party_, dungeon_, keys_, potions_, xp_, &events_);
 }
 
 bool Game::load() {
-    if (!SaveSystem::load("stoneveil.sav", player_, roster_, party_, dungeon_, keys_, potions_, xp_, &events_)) {
+    const auto file = contentRoot_.empty() ? std::filesystem::path{"stoneveil.sav"} : std::filesystem::path{contentRoot_} / "saves/game.sav";
+    if (!SaveSystem::load(file.string(), player_, roster_, party_, dungeon_, keys_, potions_, xp_, &events_)) {
         setMessage("No valid save file found.");
         audio_.play(AudioCue::Error);
         return false;
@@ -865,7 +925,7 @@ void Game::drawTitle() const {
     DrawText("STONEVEIL", 430, 132, 64, Color{220, 193, 134, 255});
     DrawText("A SYSTEMS-FIRST DUNGEON CRAWLER", 417, 218, 22, LIGHTGRAY);
     DrawText(STONEVEIL_BUILD_LABEL, 504, 254, 16, Color{90, 165, 226, 255});
-    if (!campaign_.levels.empty()) {
+    if (!campaign_.levels.empty() && !runtimeOnly_) {
         const auto& level = campaign_.levels[static_cast<std::size_t>(campaignLevelIndex_)];
         DrawRectangleRec(campaignPreviousButton(), Color{29, 31, 35, 255});
         DrawRectangleRec(campaignNextButton(), Color{29, 31, 35, 255});
@@ -887,6 +947,7 @@ void Game::drawTitle() const {
     };
     const Vector2 mouse = GetMousePosition();
     for (int index = 0; index < static_cast<int>(labels.size()); ++index) {
+        if (runtimeOnly_ && index == 2) continue;
         const Rectangle button = titleButtonRectangle(index);
         const bool hovered = CheckCollisionPointRec(mouse, button);
         DrawRectangleRec(button, hovered ? Color{64, 59, 49, 255} : Color{29, 31, 35, 255});

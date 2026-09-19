@@ -1,4 +1,5 @@
 #include "LevelEditor.hpp"
+#include "FileDialogs.hpp"
 
 #include "LevelBlueprint.hpp"
 #include "LevelIO.hpp"
@@ -79,6 +80,9 @@ Rectangle undoButton() { return {660.0f, 20.0f, 62.0f, 28.0f}; }
 Rectangle redoButton() { return {728.0f, 20.0f, 62.0f, 28.0f}; }
 Rectangle newButton() { return {796.0f, 20.0f, 62.0f, 28.0f}; }
 Rectangle saveAsButton() { return {864.0f, 20.0f, 82.0f, 28.0f}; }
+Rectangle projectButton() { return {960.0f, 20.0f, 130.0f, 28.0f}; }
+Rectangle projectActionButton(int index) { return {270.0f + (index % 3) * 250.0f, 174.0f + (index / 3) * 42.0f, 238.0f, 34.0f}; }
+Rectangle projectLevelButton(int row) { return {270.0f, 300.0f + row * 35.0f, 738.0f, 30.0f}; }
 
 Rectangle objectBrushButton(int index) {
     const int column = index % 2;
@@ -243,13 +247,14 @@ bool hasMusicExtension(const std::filesystem::path& path) {
     return extension == ".wav" || extension == ".ogg" || extension == ".mp3" || extension == ".flac";
 }
 
-std::vector<std::string> discoverMusicTracks() {
+std::vector<std::string> discoverMusicTracks(const std::string& projectRoot) {
     std::vector<std::filesystem::path> bases;
     bases.emplace_back(GetApplicationDirectory());
     std::error_code error;
     const auto workingDirectory = std::filesystem::current_path(error);
     if (!error) bases.emplace_back(workingDirectory);
     if (std::string{STONEVEIL_SOURCE_DIR}.size() > 0) bases.emplace_back(STONEVEIL_SOURCE_DIR);
+    if (!projectRoot.empty()) bases = {std::filesystem::path{projectRoot}};
 
     std::set<std::string> discovered;
     for (const auto& base : bases) {
@@ -273,10 +278,10 @@ std::vector<std::string> discoverMusicTracks() {
     return {discovered.begin(), discovered.end()};
 }
 
-std::vector<MusicTrackButton> musicTrackButtons(float firstY) {
+std::vector<MusicTrackButton> musicTrackButtons(float firstY, const std::string& projectRoot) {
     std::vector<MusicTrackButton> buttons;
     float y = firstY;
-    for (const auto& path : discoverMusicTracks()) {
+    for (const auto& path : discoverMusicTracks(projectRoot)) {
         const std::filesystem::path filePath{path};
         buttons.push_back({path, filePath.filename().string(), {OptionX, y, OptionWidth, 32.0f}, false});
         y += 48.0f;
@@ -484,11 +489,15 @@ void drawPreviewLightVisibility(const Dungeon& dungeon,
 }
 }
 
-LevelEditor::LevelEditor(std::string levelPath)
+LevelEditor::LevelEditor(std::string levelPath, const std::string& projectFile)
     : levelDirectory_(std::filesystem::path{levelPath}.parent_path().string()),
       randomizer_(std::random_device{}()) {
     syncSelectionsFromLevel();
     validationErrors_ = LevelIO::validate(level_);
+    if (!projectFile.empty()) {
+        std::string error;
+        if (project_.open(projectFile, error)) levelDirectory_ = (std::filesystem::path{project_.root()} / "content/levels").string();
+    }
     loadLevel(levelPath);
 }
 
@@ -549,13 +558,105 @@ void LevelEditor::saveLevel() {
     std::string error;
     if (!document_.save(error)) { status_ = "Not saved: " + error; return; }
     status_ = "Saved " + document_.path();
+    registerSavedLevel();
 }
 
 void LevelEditor::saveLevelAs() {
+    const auto path = chooseFile(FileKind::Level, true, levelDirectory_);
+    if (path.empty()) { status_ = "Save As cancelled; draft kept."; return; }
     std::string error;
-    if (!document_.saveCopy(levelDirectory_, error)) { status_ = "Not saved: " + error; return; }
-    status_ = "Saved new level " + level_.id + ". Register it in the campaign to play outside the editor.";
+    if (!document_.saveCopyTo(path, error)) { status_ = "Not saved: " + error; return; }
+    status_ = "Saved new level " + level_.id + ".";
     validationErrors_ = LevelIO::validate(level_);
+    registerSavedLevel();
+}
+
+void LevelEditor::registerSavedLevel() {
+    if (!project_.isOpen()) return;
+    std::string error;
+    if (!project_.registerLevel(document_.path(), error)) status_ = "Level saved, but not registered: " + error;
+}
+
+void LevelEditor::projectAction(PendingAction action) {
+    std::string error;
+    if (action == PendingAction::OpenLevel) {
+        const auto file = chooseFile(FileKind::Level, false, levelDirectory_);
+        if (!file.empty()) loadLevel(file);
+    } else if (action == PendingAction::OpenRegistered) {
+        const auto& levels = project_.campaign().levels;
+        if (requestedProjectLevel_ >= 0 && requestedProjectLevel_ < static_cast<int>(levels.size()))
+            loadLevel(project_.levelPath(levels[static_cast<std::size_t>(requestedProjectLevel_)].id));
+    } else {
+        const auto file = chooseFile(FileKind::Project, action == PendingAction::NewProject, levelDirectory_);
+        if (file.empty()) return;
+        ProjectDocument selected;
+        const bool opened = action == PendingAction::NewProject
+            ? selected.create(file, GetApplicationDirectory(), error) : selected.open(file, error);
+        if (!opened) { status_ = error; return; }
+        project_ = std::move(selected);
+        projectScroll_ = 0;
+        loadLevel(project_.levelPath(project_.campaign().startingLevelId));
+    }
+    projectPanelOpen_ = false;
+}
+
+void LevelEditor::updateProjectPanel() {
+    if (IsKeyPressed(KEY_ESCAPE)) { projectPanelOpen_ = false; return; }
+    const int count = static_cast<int>(project_.campaign().levels.size());
+    projectScroll_ = std::clamp(projectScroll_ - static_cast<int>(GetMouseWheelMove()), 0, std::max(0, count - 7));
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) return;
+    const auto mouse = GetMousePosition();
+    if (CheckCollisionPointRec(mouse, {1015, 115, 35, 32})) { projectPanelOpen_ = false; return; }
+    for (int i = 0; i < 6; ++i) if (CheckCollisionPointRec(mouse, projectActionButton(i))) {
+        if (i == 0) requestDestructiveAction(PendingAction::NewProject);
+        else if (i == 1) requestDestructiveAction(PendingAction::OpenProject);
+        else if (i == 3) requestDestructiveAction(PendingAction::OpenLevel);
+        else {
+            std::string error;
+            if (i == 2) {
+                saveLevel();
+                if (!document_.dirty() && project_.registerLevel(document_.path(), error)) status_ = "Project and level saved.";
+                else if (!error.empty()) status_ = error;
+            } else if (i == 4) {
+                if (document_.dirty()) status_ = "Save the current level before choosing it as the start.";
+                else status_ = project_.setStartingLevel(level_.id, error) ? "Starting level updated." : error;
+            } else {
+                if (document_.dirty()) { status_ = "Save the current level before exporting."; return; }
+                const auto directory = chooseFolder("Choose an EMPTY folder for the exported Windows game");
+                if (directory.empty()) return;
+                const auto executable = (std::filesystem::path{GetApplicationDirectory()} / "stoneveil.exe").string();
+                status_ = project_.exportWindowsGame(executable, directory, error) ? "Export complete: " + directory : error;
+            }
+        }
+        return;
+    }
+    for (int row = 0; row < 7 && projectScroll_ + row < count; ++row) {
+        if (CheckCollisionPointRec(mouse, projectLevelButton(row))) {
+            requestedProjectLevel_ = projectScroll_ + row;
+            requestDestructiveAction(PendingAction::OpenRegistered);
+            return;
+        }
+    }
+}
+
+void LevelEditor::drawProjectPanel() const {
+    DrawRectangle(0, 0, 1280, 720, Color{4, 5, 7, 210});
+    DrawRectangle(245, 100, 820, 550, Panel);
+    DrawRectangleLines(245, 100, 820, 550, Accent);
+    DrawText(project_.isOpen() ? project_.campaign().name.c_str() : "PROJECT WORKSPACE", 270, 125, 24, Text);
+    drawButton({1015, 115, 35, 32}, "X", false, 18);
+    const char* labels[] = {"NEW PROJECT", "OPEN PROJECT", "SAVE PROJECT", "OPEN LEVEL", "SET START LEVEL", "EXPORT WINDOWS GAME"};
+    for (int i = 0; i < 6; ++i) drawButton(projectActionButton(i), labels[i], false, 16);
+    DrawText("REGISTERED LEVELS  -  click to open; scroll for more", 270, 270, 16, Muted);
+    const auto& levels = project_.campaign().levels;
+    for (int row = 0; row < 7 && projectScroll_ + row < static_cast<int>(levels.size()); ++row) {
+        const auto& entry = levels[static_cast<std::size_t>(projectScroll_ + row)];
+        const auto label = (entry.id == project_.campaign().startingLevelId ? "[START] " : "") + entry.name;
+        drawButton(projectLevelButton(row), shortened(label, 62).c_str(), entry.id == level_.id, 15);
+    }
+    DrawText("New Project: choose a .stoneveil file inside a new empty folder.", 270, 568, 15, Muted);
+    DrawText("Save/Save As automatically registers levels saved inside this project.", 270, 591, 15, Muted);
+    DrawText(shortened(status_, 90).c_str(), 270, 619, 13, Accent);
 }
 
 void LevelEditor::newLevel() {
@@ -583,6 +684,7 @@ void LevelEditor::completePendingAction() {
     else if (action == PendingAction::Reload) loadLevel();
     else if (action == PendingAction::NewLevel) newLevel();
     else if (action == PendingAction::Quit) quitRequested_ = true;
+    else projectAction(action);
 }
 
 void LevelEditor::recordUndo() {
@@ -1226,7 +1328,9 @@ void LevelEditor::importDroppedAudio() {
         UnloadDroppedFiles(dropped);
         return;
     }
-    const std::filesystem::path contentDirectory = std::filesystem::path{levelDirectory_}.parent_path();
+    const std::filesystem::path contentDirectory = project_.isOpen()
+        ? std::filesystem::path{project_.root()} / "content"
+        : std::filesystem::path{levelDirectory_}.parent_path();
     const std::filesystem::path musicDirectory = contentDirectory / "audio" / "music";
     std::error_code error;
     std::filesystem::create_directories(musicDirectory, error);
@@ -1394,6 +1498,7 @@ void LevelEditor::update() {
         updateTextEdit();
         return;
     }
+    if (projectPanelOpen_) { updateProjectPanel(); return; }
     if (importPanelOpen_) {
         if (IsKeyPressed(KEY_ESCAPE)) {
             importPanelOpen_ = false;
@@ -1435,6 +1540,7 @@ void LevelEditor::update() {
 
     const Vector2 mouse = GetMousePosition();
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        if (CheckCollisionPointRec(mouse, projectButton())) { projectPanelOpen_ = true; return; }
         for (int index = 0; index < 4; ++index) {
             if (CheckCollisionPointRec(mouse, dimensionButton(index))) {
                 constexpr std::array<int, 4> widthChanges = {-1, 1, 0, 0};
@@ -1570,7 +1676,7 @@ void LevelEditor::update() {
                 refreshValidation("Level music cleared.");
                 return;
             }
-            for (const auto& button : musicTrackButtons(FirstMusicY)) {
+            for (const auto& button : musicTrackButtons(FirstMusicY, project_.root())) {
                 if (CheckCollisionPointRec(mouse, button.bounds)) {
                     recordUndo();
                     level_.musicPath = button.path;
@@ -1634,6 +1740,7 @@ void LevelEditor::draw() const {
     drawButton(redoButton(), "REDO", false, 11);
     drawButton(newButton(), "NEW", false, 11);
     drawButton(saveAsButton(), "SAVE AS", false, 11);
+    drawButton(projectButton(), "PROJECT", false, 13);
 
     static constexpr std::array<const char*, LayerCount> layerLabels = {
         "MAP", "WALL", "FLOOR", "CEIL", "OBJ", "STORY", "EVENT", "LIGHT", "AUDIO",
@@ -1912,7 +2019,7 @@ void LevelEditor::draw() const {
     } else if (layer_ == Layer::Audio) {
         DrawText("LEVEL AUDIO", static_cast<int>(OptionX), 112, 14, Muted);
         drawButton(noMusicButton(), "No Music", level_.musicPath.empty());
-        const auto buttons = musicTrackButtons(FirstMusicY);
+        const auto buttons = musicTrackButtons(FirstMusicY, project_.root());
         for (const auto& button : buttons) {
             drawButton(button.bounds, button.label.c_str(), level_.musicPath == button.path);
             DrawText(shortened(button.path, 48).c_str(),
@@ -2011,6 +2118,7 @@ void LevelEditor::draw() const {
                  static_cast<int>(panel.x) + 32, static_cast<int>(panel.y) + 410, 13, Muted);
     }
 
+    if (projectPanelOpen_) drawProjectPanel();
     if (pendingAction_ != PendingAction::None) {
         DrawRectangleRec({0.0f, 0.0f, 1280.0f, 720.0f}, Color{4, 5, 7, 190});
         const Rectangle panel{330.0f, 250.0f, 620.0f, 190.0f};

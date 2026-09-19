@@ -1,4 +1,5 @@
 #include "LevelIO.hpp"
+#include "AtomicFile.hpp"
 
 #include "EnemyType.hpp"
 #include "Lighting.hpp"
@@ -379,7 +380,7 @@ bool LevelIO::save(const std::string& path, const LevelDefinition& level, std::s
         return false;
     }
 
-    std::ofstream output(path, std::ios::trunc);
+    std::ostringstream output;
     if (!output) {
         error = "Could not write level file: " + path;
         return false;
@@ -451,8 +452,7 @@ bool LevelIO::save(const std::string& path, const LevelDefinition& level, std::s
         error = "Failed while writing level data.";
         return false;
     }
-    error.clear();
-    return true;
+    return writeFileAtomically(path, output.str(), error);
 }
 
 std::vector<std::string> LevelIO::validate(const LevelDefinition& level) {

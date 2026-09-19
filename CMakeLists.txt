@@ -4,6 +4,7 @@ project(STONEVEIL VERSION 0.4.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 include(FetchContent)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -27,6 +28,7 @@ endfunction()
 # One raylib-free source list for runtime and every core regression suite.
 add_library(stoneveil_core STATIC
   src/ActionGate.cpp
+  src/AtomicFile.cpp
   src/Authoring.cpp
   src/Campaign.cpp
   src/CampaignInventory.cpp
@@ -45,6 +47,7 @@ add_library(stoneveil_core STATIC
   src/Material.cpp
   src/Party.cpp
   src/Player.cpp
+  src/Project.cpp
   src/Portrait.cpp
   src/Roster.cpp
   src/SaveSystem.cpp
@@ -57,11 +60,15 @@ stoneveil_warnings(stoneveil_core)
 add_executable(stoneveil
   src/main.cpp
   src/AudioSystem.cpp
+  src/FileDialogs.cpp
   src/Game.cpp
   src/LevelEditor.cpp
   src/Raycaster.cpp
 )
 target_link_libraries(stoneveil PRIVATE stoneveil_core raylib)
+if (WIN32)
+  target_link_libraries(stoneveil PRIVATE comdlg32 shell32 ole32)
+endif()
 target_compile_definitions(stoneveil PRIVATE
   STONEVEIL_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
   STONEVEIL_BUILD_LABEL="STONEVEIL v0.4.1-creator-integration"
@@ -69,6 +76,9 @@ target_compile_definitions(stoneveil PRIVATE
 stoneveil_warnings(stoneveil)
 set_target_properties(stoneveil PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 add_custom_command(TARGET stoneveil POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${CMAKE_SOURCE_DIR}/stoneveil.stoneveil"
+          "$<TARGET_FILE_DIR:stoneveil>/stoneveil.stoneveil"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           "${CMAKE_SOURCE_DIR}/content"
           "$<TARGET_FILE_DIR:stoneveil>/content"
@@ -87,6 +97,7 @@ if (BUILD_TESTING)
   stoneveil_test(stoneveil_event_tests tests/EventSystemTests.cpp)
   stoneveil_test(stoneveil_compatibility_tests tests/CompatibilityTests.cpp)
   stoneveil_test(stoneveil_document_tests tests/EditorDocumentTests.cpp)
+  stoneveil_test(stoneveil_project_tests tests/ProjectTests.cpp)
   add_test(NAME stoneveil_editor_validate
            COMMAND stoneveil --validate "${CMAKE_SOURCE_DIR}/content/levels/gatehouse.svl")
 endif()

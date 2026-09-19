@@ -1,9 +1,11 @@
 #include "Campaign.hpp"
+#include "AtomicFile.hpp"
 
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <set>
+#include <sstream>
 
 namespace sv {
 namespace {
@@ -57,7 +59,7 @@ bool CampaignIO::save(const std::string& path, const CampaignDefinition& campaig
         error = errors.front();
         return false;
     }
-    std::ofstream output(path, std::ios::trunc);
+    std::ostringstream output;
     if (!output) {
         error = "Could not write campaign registry: " + path;
         return false;
@@ -75,8 +77,7 @@ bool CampaignIO::save(const std::string& path, const CampaignDefinition& campaig
         error = "Failed while writing campaign registry.";
         return false;
     }
-    error.clear();
-    return true;
+    return writeFileAtomically(path, output.str(), error);
 }
 
 std::vector<std::string> CampaignIO::validate(const CampaignDefinition& campaign) {

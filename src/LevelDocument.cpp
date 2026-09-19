@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 
 namespace sv {
@@ -53,6 +54,26 @@ bool LevelDocument::saveCopy(const std::string& directory, std::string& error) {
     }
     error = "No unused level filename was available. Choose another level ID.";
     return false;
+}
+
+bool LevelDocument::saveCopyTo(const std::string& path, std::string& error) {
+    const std::filesystem::path destination{path};
+    std::error_code ec;
+    if (destination.extension() != ".svl" || std::filesystem::exists(destination, ec) || ec) {
+        error = "Choose a new .svl filename. Use Save to update the current file."; return false;
+    }
+    auto copy = current_.level;
+    auto stem = destination.stem().string();
+    std::replace_if(stem.begin(), stem.end(), [](unsigned char ch) {
+        return !std::isalnum(ch) && ch != '-' && ch != '_';
+    }, '-');
+    copy.id = "level." + stem + "." + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+    if (!LevelIO::save(path, copy, error)) return false;
+    beginEdit();
+    current_.level = std::move(copy);
+    current_.path = path;
+    savedRevisions_[path] = current_.revision;
+    return true;
 }
 
 void LevelDocument::beginEdit() {

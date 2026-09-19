@@ -2,6 +2,7 @@
 
 #include "Dungeon.hpp"
 #include "LevelDocument.hpp"
+#include "Project.hpp"
 
 #include <random>
 #include <string>
@@ -11,18 +12,21 @@ namespace sv {
 
 class LevelEditor {
 public:
-    explicit LevelEditor(std::string levelPath);
+    explicit LevelEditor(std::string levelPath, const std::string& projectFile = {});
 
     void update();
     void draw() const;
     const LevelDefinition& level() const { return level_; }
     void showLightsLayerForCapture();
     void showStoryLayerForCapture();
+    void showProjectPanelForCapture(bool visible) { projectPanelOpen_ = visible; }
     bool consumePlaytestRequest();
     bool consumeExitRequest();
     bool hasUnsavedChanges() const { return document_.dirty(); }
     void requestQuit();
     bool consumeQuitRequest();
+    const ProjectDocument& project() const { return project_; }
+    const std::string& levelPath() const { return document_.path(); }
 
 private:
     enum class Layer {
@@ -77,7 +81,7 @@ private:
         TriggerMessage,
     };
 
-    enum class PendingAction { None, Exit, Reload, NewLevel, Quit };
+    enum class PendingAction { None, Exit, Reload, NewLevel, Quit, NewProject, OpenProject, OpenLevel, OpenRegistered };
 
     void loadLevel(const std::string& path = {});
     void saveLevel();
@@ -85,6 +89,10 @@ private:
     void newLevel();
     void requestDestructiveAction(PendingAction action);
     void completePendingAction();
+    void projectAction(PendingAction action);
+    void updateProjectPanel();
+    void drawProjectPanel() const;
+    void registerSavedLevel();
     void refreshValidation(const std::string& successMessage);
     void syncSelectionsFromLevel();
     void setLayer(Layer layer);
@@ -117,6 +125,10 @@ private:
     SurfaceKind selectedSurface() const;
 
     LevelDocument document_;
+    ProjectDocument project_;
+    bool projectPanelOpen_{false};
+    int projectScroll_{0};
+    int requestedProjectLevel_{0};
     std::string levelDirectory_;
     // Presentation aliases keep painting incremental; all identity/history
     // operations belong to the testable document owner.

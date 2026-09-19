@@ -46,12 +46,13 @@ Color materialColor(const std::string& materialId, Color fallback) {
     return {material->swatch.r, material->swatch.g, material->swatch.b, 255};
 }
 
-std::vector<std::filesystem::path> candidateAssetPaths(const std::string& relativePath) {
+std::vector<std::filesystem::path> candidateAssetPaths(const std::string& relativePath, const std::string& root) {
     std::vector<std::filesystem::path> paths;
     const auto addCandidate = [&paths, &relativePath](const std::filesystem::path& base) {
         if (!base.empty()) paths.push_back(base / relativePath);
     };
 
+    if (!root.empty()) { addCandidate(root); return paths; }
     addCandidate(GetApplicationDirectory());
     std::error_code error;
     const auto workingDirectory = std::filesystem::current_path(error);
@@ -60,17 +61,18 @@ std::vector<std::filesystem::path> candidateAssetPaths(const std::string& relati
     return paths;
 }
 
-TextureAsset* textureForPath(const std::string& texturePath) {
+TextureAsset* textureForPath(const std::string& texturePath, const std::string& root) {
     if (texturePath.empty()) return nullptr;
     static std::unordered_map<std::string, TextureAsset> textures;
-    const auto found = textures.find(texturePath);
+    const std::string cacheKey = root + "|" + texturePath;
+    const auto found = textures.find(cacheKey);
     if (found != textures.end()) {
         return found->second.texture.id == 0 ? nullptr : &found->second;
     }
 
     TextureAsset asset{};
     std::vector<std::filesystem::path> searched;
-    for (const auto& path : candidateAssetPaths(texturePath)) {
+    for (const auto& path : candidateAssetPaths(texturePath, root)) {
         searched.push_back(path);
         std::error_code error;
         if (!std::filesystem::exists(path, error)) continue;
@@ -103,20 +105,20 @@ TextureAsset* textureForPath(const std::string& texturePath) {
         }
     }
 
-    auto inserted = textures.emplace(texturePath, std::move(asset));
+    auto inserted = textures.emplace(cacheKey, std::move(asset));
     return inserted.first->second.texture.id == 0 || inserted.first->second.pixels.empty() ? nullptr : &inserted.first->second;
 }
 
-TextureAsset* materialTexture(const MaterialDefinition& material) {
-    return textureForPath(material.texturePath);
+TextureAsset* materialTexture(const MaterialDefinition& material, const std::string& root) {
+    return textureForPath(material.texturePath, root);
 }
 
-TextureAsset* doorTexture(Tile tile) {
+TextureAsset* doorTexture(Tile tile, const std::string& root) {
     if (tile == Tile::DoorClosed) {
-        return textureForPath("content/textures/doors/iron-banded-wooden-door.png");
+        return textureForPath("content/textures/doors/iron-banded-wooden-door.png", root);
     }
     if (tile == Tile::SecretDoorClosed) {
-        return textureForPath("content/textures/doors/secret-stone-door.png");
+        return textureForPath("content/textures/doors/secret-stone-door.png", root);
     }
     return nullptr;
 }
@@ -207,7 +209,7 @@ Color sampleTexture(const TextureAsset& asset, double u, double v) {
 }
 
 Color surfaceColorAt(const Dungeon& dungeon, int cellX, int cellY, SurfaceKind surface, double worldX, double worldY,
-                     Color fallback) {
+                     Color fallback, const std::string& root) {
     if (!dungeon.inBounds(cellX, cellY)) return fallback;
     if (surface == SurfaceKind::Ceiling && dungeon.ceilingModeAt(cellX, cellY) == CeilingMode::Sky) {
         return Color{72, 121, 159, 255};
@@ -215,7 +217,7 @@ Color surfaceColorAt(const Dungeon& dungeon, int cellX, int cellY, SurfaceKind s
     const std::string materialId = dungeon.materialAt(cellX, cellY, surface);
     const auto* material = findMaterial(materialId);
     if (material == nullptr) return fallback;
-    if (const auto* texture = materialTexture(*material)) {
+    if (const auto* texture = materialTexture(*material, root)) {
         return sampleTexture(*texture, worldX, worldY);
     }
     return {material->swatch.r, material->swatch.g, material->swatch.b, 255};
@@ -226,7 +228,7 @@ bool isSkyAt(const Dungeon& dungeon, int cellX, int cellY) {
 }
 
 void drawTexturedFloorAndCeiling(const Dungeon& dungeon, double posX, double posY, double dirX, double dirY,
-                                 double planeX, double planeY) {
+                                 double planeX, double planeY, const std::string& root) {
     const double leftRayDirX = dirX - planeX;
     const double leftRayDirY = dirY - planeY;
     const double rightRayDirX = dirX + planeX;
@@ -253,14 +255,14 @@ void drawTexturedFloorAndCeiling(const Dungeon& dungeon, double posX, double pos
             const LightSample surfaceLight = Lighting::sampleAt(dungeon, worldX, worldY, cellX, cellY);
 
             const Color floorColor = surfaceColorAt(dungeon, cellX, cellY, SurfaceKind::Floor, worldX, worldY,
-                                                    Color{43, 37, 31, 255});
+                                                    Color{43, 37, 31, 255}, root);
             DrawRectangle(ViewX + x, ViewY + y, blockW, blockH,
                           shadeColor(floorColor, FloorAmbient, surfaceLight, shade));
 
             const int ceilingY = ViewH - y - blockH;
             const bool sky = isSkyAt(dungeon, cellX, cellY);
             const Color ceilingColor = surfaceColorAt(dungeon, cellX, cellY, SurfaceKind::Ceiling, worldX, worldY,
-                                                      Color{29, 31, 37, 255});
+                                                      Color{29, 31, 37, 255}, root);
             DrawRectangle(ViewX + x, ViewY + ceilingY, blockW, blockH,
                           shadeColor(ceilingColor, sky ? SkyAmbient : CeilingAmbient,
                                      sky ? LightSample{} : surfaceLight,
@@ -271,6 +273,7 @@ void drawTexturedFloorAndCeiling(const Dungeon& dungeon, double posX, double pos
 }
 
 void Raycaster::draw(const Dungeon& dungeon, const PlayerState& player) const {
+    const auto& root = contentRoot_;
     const double posX = player.eyeX();
     const double posY = player.eyeY();
     const LightSample eyeLight = Lighting::sampleAt(dungeon, posX, posY, player.x(), player.y());
@@ -292,7 +295,7 @@ void Raycaster::draw(const Dungeon& dungeon, const PlayerState& player) const {
     const double planeX = -dirY * FovScale;
     const double planeY = dirX * FovScale;
 
-    drawTexturedFloorAndCeiling(dungeon, posX, posY, dirX, dirY, planeX, planeY);
+    drawTexturedFloorAndCeiling(dungeon, posX, posY, dirX, dirY, planeX, planeY, root);
 
     for (int x = 0; x < ViewW; ++x) {
         const double cameraX = 2.0 * x / static_cast<double>(ViewW) - 1.0;
@@ -357,8 +360,8 @@ void Raycaster::draw(const Dungeon& dungeon, const PlayerState& player) const {
         const std::string materialId = dungeon.materialAt(mapX, mapY, SurfaceKind::Wall);
         const auto* material = findMaterial(materialId);
         TextureAsset* texture = hitTile == Tile::DoorClosed || hitTile == Tile::SecretDoorClosed
-            ? doorTexture(hitTile)
-            : (material == nullptr ? nullptr : materialTexture(*material));
+            ? doorTexture(hitTile, root)
+            : (material == nullptr ? nullptr : materialTexture(*material, root));
         if (texture != nullptr) {
             double wallX = side ? posX + distance * rayDirX : posY + distance * rayDirY;
             wallX -= std::floor(wallX);

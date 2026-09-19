@@ -32,26 +32,41 @@ does not satisfy a gate.
   paths. The standalone copied package validates Gatehouse. These smoke checks
   are not proof of the full self-hosted-game or export gates.
 
+## Project/export slice verification
+
+- Windows MSVC Release and CTest 6/6 pass, including ProjectTests.
+- New/Open/Save Project, registered-level browser, native level Open/Save As,
+  automatic registration and starting-level selection are implemented.
+- Windows export copies runtime, registry, levels and referenced assets; marker
+  is written last. A retained real export launched and captured successfully.
+- Project panel visually inspected in build/project-shell-final-smoke.
+- dumpbin confirms Release depends only on Windows system DLLs.
+- Gate 2 remains IN PROGRESS: contextual selection/movement/facing/inspector
+  still missing. Gate 6 remains IN PROGRESS: no complete campaign progression,
+  multi-file transaction, or installed/user-profile save workflow yet.
+- Gate 8 now distinguishes project blocking errors and missing-asset warnings;
+  progression-graph validation remains absent.
+
 ## Known open defects
 
-- No project browser/creator, external character catalog, recruitment UI,
-  management points, destination transitions, or editor-driven game export yet.
+- External character catalog, recruitment UI, management points and destination
+  transitions remain absent. Project browser/creator and basic export now exist.
 - Richer Story Tile/door compiler fields still need format/editor/runtime
   adapters. Current authored events are messages and existing door behaviors.
 - Saves do not preserve full active-combat cooldown/RNG state. Legacy saves
   cannot recover event history or stable entity identity they never stored.
-- Save writes are validated but not yet crash-atomic; disk-full/power-loss
+- Individual writes now use flushed atomic replacement on Windows. Multi-file
   recovery and project-wide reference migrations remain Gate 6 work.
 - Long story messages need wrapped/paged presentation. Object art is placeholder;
   portrait reaction logic is preserved but not shown in the HUD.
-- Save As uses an automatic unique filename/level ID; campaign registration is
-  still manual. A no-op text-edit session can conservatively mark the draft dirty.
+- Save As uses a native filename dialog and generates a distinct safe level ID;
+  saving inside the project registers automatically. A no-op text-edit session
+  can conservatively mark the draft dirty.
 - See CREATOR_ALPHA_AUDIT.md for original findings and SAVE_MIGRATIONS.md for
   current persistence limitations. Only Gate 1 is verified; no full Creator Alpha
   claim is made.
 
 ## Next highest-leverage task
 
-Finish Gate 2 with a versioned ProjectDocument and New/Open/Save project + level
-browser backed by the campaign registry. Add contextual select/move/facing and
-inspector operations, then proceed to the authored Character Creator/roster gate.
+Finish Gate 2 with contextual select/move/facing and inspector operations, then
+proceed to the authored Character Creator/roster gate.

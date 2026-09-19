@@ -1,4 +1,5 @@
 #include "SaveSystem.hpp"
+#include "AtomicFile.hpp"
 #include "WorldEvents.hpp"
 
 #include <algorithm>
@@ -191,7 +192,7 @@ bool SaveSystem::save(const std::string& path,
         if (pickup.id.empty() || !ids.insert(pickup.id).second) return false;
     for (const auto& enemy : dungeon.enemies())
         if (enemy.id.empty() || !ids.insert(enemy.id).second) return false;
-    std::ofstream output(path, std::ios::trunc);
+    std::ostringstream output;
     if (!output) return false;
 
     output << "STONEVEIL_SAVE " << CurrentSaveVersion << '\n';
@@ -227,7 +228,8 @@ bool SaveSystem::save(const std::string& path,
     output << "EVENTS " << counts.size() << '\n';
     for (const auto& entry : counts) output << std::quoted(entry.first) << ' ' << entry.second << '\n';
     output << "END\n";
-    return static_cast<bool>(output);
+    std::string error;
+    return output && writeFileAtomically(path, output.str(), error);
 }
 
 bool SaveSystem::load(const std::string& path,

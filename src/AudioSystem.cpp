@@ -171,6 +171,7 @@ void AudioSystem::registerCue(AudioCue cue, float frequency, float durationSecon
 }
 
 std::string AudioSystem::resolveMusicPath(const std::string& relativePath) const {
+    if (!contentRoot_.empty()) return (std::filesystem::path{contentRoot_} / relativePath).string();
     std::vector<std::filesystem::path> candidates;
     candidates.emplace_back(std::filesystem::path{GetApplicationDirectory()} / relativePath);
     std::error_code error;
