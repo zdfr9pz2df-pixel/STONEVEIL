@@ -89,7 +89,7 @@ Rectangle objectBrushButton(int index) {
     const int column = index % 2;
     const int row = index / 2;
     return {OptionX + static_cast<float>(column) * (OptionWidth * 0.5f + 3.0f),
-            130.0f + static_cast<float>(row) * 35.0f, OptionWidth * 0.5f - 3.0f, 29.0f};
+            130.0f + static_cast<float>(row) * 31.0f, OptionWidth * 0.5f - 3.0f, 26.0f};
 }
 
 Rectangle storyModeButton(bool erase) {
@@ -363,6 +363,8 @@ const char* objectKindLabel(WorldObjectKind kind) {
         case WorldObjectKind::Npc: return "NPC";
         case WorldObjectKind::Recruit: return "Recruit";
         case WorldObjectKind::PartyManagement: return "Party Management Point";
+        case WorldObjectKind::ArrivalPoint: return "Arrival Point";
+        case WorldObjectKind::LevelTransition: return "Level Transition";
     }
     return "Object";
 }
@@ -376,6 +378,8 @@ const char* objectMapLabel(WorldObjectKind kind) {
         case WorldObjectKind::Npc: return "@";
         case WorldObjectKind::Recruit: return "+";
         case WorldObjectKind::PartyManagement: return "M";
+        case WorldObjectKind::ArrivalPoint: return "A";
+        case WorldObjectKind::LevelTransition: return ">";
     }
     return "?";
 }
@@ -1169,6 +1173,30 @@ void LevelEditor::paintLight(int x, int y) {
     refreshValidation("Placed " + definition->name + ".");
 }
 
+bool LevelEditor::selectNextTransitionDestination(WorldObject& object) {
+    if (!project_.isOpen()) return false;
+    std::vector<std::pair<std::string, std::string>> endpoints;
+    for (const auto& entry : project_.campaign().levels) {
+        LevelDefinition candidate;
+        if (entry.id == level_.id) candidate = level_;
+        else {
+            std::string error;
+            if (!LevelIO::load(project_.levelPath(entry.id), candidate, error)) continue;
+        }
+        for (const auto& marker : candidate.objects)
+            if (marker.kind == WorldObjectKind::ArrivalPoint)
+                endpoints.emplace_back(entry.id, marker.id);
+    }
+    if (endpoints.empty()) return false;
+    const auto current = std::find(endpoints.begin(), endpoints.end(),
+                                   std::make_pair(object.destinationLevelId, object.destinationArrivalId));
+    const auto next = current == endpoints.end() ? endpoints.begin()
+        : std::next(current) == endpoints.end() ? endpoints.begin() : std::next(current);
+    object.destinationLevelId = next->first;
+    object.destinationArrivalId = next->second;
+    return true;
+}
+
 void LevelEditor::paintObject(int x, int y) {
     if (x <= 0 || y <= 0 || x >= level_.width - 1 || y >= level_.height - 1) {
         status_ = "Objects must stay inside the boundary.";
@@ -1216,7 +1244,12 @@ void LevelEditor::paintObject(int x, int y) {
         refreshValidation("Door or gate settings updated.");
         return;
     }
-    if (hasObjectAt(x, y)) {
+    const bool arrivalBrush = objectBrush_ == ObjectBrush::ArrivalPoint;
+    bool occupiedBeyondSpawn = false;
+    for (const auto& pickup : level_.pickups) occupiedBeyondSpawn |= pickup.x == x && pickup.y == y;
+    for (const auto& enemy : level_.enemies) occupiedBeyondSpawn |= enemy.x == x && enemy.y == y;
+    for (const auto& object : level_.objects) occupiedBeyondSpawn |= object.x == x && object.y == y;
+    if ((arrivalBrush ? occupiedBeyondSpawn : hasObjectAt(x, y))) {
         status_ = "That cell already holds an enemy, pickup, object, or the player spawn.";
         return;
     }
@@ -1272,6 +1305,8 @@ void LevelEditor::paintObject(int x, int y) {
         else if (objectBrush_ == ObjectBrush::Npc) kind = WorldObjectKind::Npc;
         else if (objectBrush_ == ObjectBrush::Recruit) kind = WorldObjectKind::Recruit;
         else if (objectBrush_ == ObjectBrush::PartyManagement) kind = WorldObjectKind::PartyManagement;
+        else if (objectBrush_ == ObjectBrush::ArrivalPoint) kind = WorldObjectKind::ArrivalPoint;
+        else if (objectBrush_ == ObjectBrush::LevelTransition) kind = WorldObjectKind::LevelTransition;
         WorldObject object;
         object.id = stableId(level_, lowercase(objectKindLabel(kind)), x, y);
         object.kind = kind;
@@ -1289,6 +1324,17 @@ void LevelEditor::paintObject(int x, int y) {
             object.blocksMovement = true;
         } else if (kind == WorldObjectKind::PartyManagement) {
             object.text = "Choose which recruited companions travel with you.";
+        } else if (kind == WorldObjectKind::ArrivalPoint) {
+            object.name = "Arrival Point";
+            object.text = "Editor-only campaign arrival marker.";
+            object.facing = level_.spawnDirection;
+        } else if (kind == WorldObjectKind::LevelTransition) {
+            object.name = "Passage to another level";
+            object.text = "The party travels onward.";
+            if (!selectNextTransitionDestination(object)) {
+                status_ = "Place and save an Arrival Point in a registered project level first.";
+                return;
+            }
         }
         level_.objects.push_back(std::move(object));
         selectedObjectIndex_ = static_cast<int>(level_.objects.size()) - 1;
@@ -1836,10 +1882,10 @@ void LevelEditor::update() {
                 }
             }
         } else if (layer_ == Layer::Objects) {
-            static constexpr std::array<const char*, 15> labels = {
+            static constexpr std::array<const char*, 17> labels = {
                 "Erase", "Enemy: Prowler", "Enemy: Brute", "Pickup: Key", "Pickup: Potion",
                 "Locked Door", "Unlocked Door", "Gate", "Prop", "Shrine", "Note / Inscription",
-                "Corpse", "NPC", "Recruit", "Party Management",
+                "Corpse", "NPC", "Recruit", "Party Management", "Arrival Point", "Level Transition",
             };
             for (int index = 0; index < static_cast<int>(labels.size()); ++index) {
                 if (CheckCollisionPointRec(mouse, objectBrushButton(index))) {
@@ -2175,10 +2221,10 @@ void LevelEditor::draw() const {
                  static_cast<int>(OptionX), 426, 15, Muted);
     } else if (layer_ == Layer::Objects) {
         DrawText("OBJECT BRUSH", static_cast<int>(OptionX), 112, 14, Muted);
-        static constexpr std::array<const char*, 15> labels = {
+        static constexpr std::array<const char*, 17> labels = {
             "Erase", "Enemy: Prowler", "Enemy: Brute", "Pickup: Key", "Pickup: Potion",
             "Locked Door", "Unlocked Door", "Gate", "Prop", "Shrine", "Note / Inscription",
-            "Corpse", "NPC", "Recruit", "Party Management",
+            "Corpse", "NPC", "Recruit", "Party Management", "Arrival Point", "Level Transition",
         };
         for (int index = 0; index < static_cast<int>(labels.size()); ++index) {
             drawButton(objectBrushButton(index), labels[static_cast<std::size_t>(index)],
@@ -2465,6 +2511,18 @@ void LevelEditor::updateInspector() {
             it->characterId = next->id;
             it->name = next->name;
             it->text = next->recruitmentText.empty() ? next->name + " joins the reserve roster." : next->recruitmentText;
+        } else if (it->kind == WorldObjectKind::ArrivalPoint) {
+            recordUndo();
+            it->facing = (it->facing + 1) % 4;
+        } else if (it->kind == WorldObjectKind::LevelTransition) {
+            auto candidate = *it;
+            if (!selectNextTransitionDestination(candidate)) {
+                status_ = "No registered Arrival Points are available.";
+                return;
+            }
+            recordUndo();
+            it->destinationLevelId = candidate.destinationLevelId;
+            it->destinationArrivalId = candidate.destinationArrivalId;
         } else {
             recordUndo();
             it->blocksMovement = !it->blocksMovement;
@@ -2548,6 +2606,13 @@ void LevelEditor::drawInspector() const {
                 return entry.id == object.characterId;
             });
             detail += character == characters.end() ? " / MISSING CHARACTER" : " / " + character->name;
+        } else if (object.kind == WorldObjectKind::ArrivalPoint) {
+            property = "ROTATE ARRIVAL FACING";
+            detail = object.name + " / FACING " +
+                std::array<const char*,4>{"NORTH","EAST","SOUTH","WEST"}[object.facing];
+        } else if (object.kind == WorldObjectKind::LevelTransition) {
+            property = "NEXT REGISTERED DESTINATION";
+            detail = object.destinationLevelId + " / " + object.destinationArrivalId;
         }
         drawButton({610, 387, 585, 34}, shortened("NAME: " + object.name, 58).c_str(), textField_ == TextField::ObjectName, 14);
         drawButton({610, 431, 585, 34}, shortened("TEXT: " + object.text, 58).c_str(), textField_ == TextField::ObjectText, 14);

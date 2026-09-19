@@ -76,7 +76,7 @@ The current tree includes:
 - permanent-death state and recruitment-ready reserve records
 - a maximum active-party capacity of 3; additional recruits stay in Reserve
 - a dynamic gameplay HUD that renders 1–3 active members
-- version 5 saves that persist roster state, death, active members, capacity, map state, stable pickup/enemy identities, and event fired-counts
+- version 6 saves that persist roster state, death, active members, inventory/XP, the current registered level, inactive visited-level snapshots, stable entity identities, and event fired-counts
 - backward loading for the earlier save layouts
 - a versioned external Gatehouse level in `content/levels/gatehouse.svl`
 - categorized stable material IDs, per-cell surface overrides, and open-sky ceiling mode
@@ -84,8 +84,8 @@ The current tree includes:
   with grid line-of-sight so a torch does not shine through solid stone
 - a second-pass lighting model with darker ambient, warm torch contribution, softer falloff, directional
   wall-face shading, distance/corner dimming, and per-surface floor/ceiling light sampling
-- level format version 7, which retains stable authored objects and adds stable character references
-  for recruit interactions while still loading versions 1–6
+- level format version 8, which adds stable arrival markers and level-transition destinations while
+  retaining recruit references and loading versions 1–7
 - queryable authored water cells with depth, flow direction, and volume IDs, ready for later movement,
   audio, light-extinguishing, rendering, and AI rules
 - a title-menu dungeon editor for structure, wall, floor, ceiling, object, story, event, light, and audio layers
@@ -96,6 +96,8 @@ The current tree includes:
   interacting with an object; playtests display authored discovery text through the real game HUD
 - editor undo/redo, New Level, Save As, and dirty-draft confirmation before reload/new/menu exit
 - a versioned campaign registry and title-screen level selector; Gatehouse is no longer a compiled filename
+- a playable two-level Gatehouse/Underkeep loop with lore, recruitment, party management, return travel,
+  cross-level persistence, save/reload, and project-wide route validation
 - drag-and-drop audio import into `content/audio/music/`, retaining the existing safe path and streaming contract
 - dynamically sized 4×4 through 64×64 maps with fitted editor rendering and dynamic runtime storage
 - in-editor playtesting that runs the current unsaved `LevelDefinition` through the real gameplay systems
@@ -187,7 +189,7 @@ path before falling back to swatches.
 - A new game still presents exactly the three starters and allows selecting 1–3.
 - Maximum active capacity is 3. The 2026-09-18 Creator Alpha brief supersedes the older six-slot rule.
 - Recruitment adds a character to the reserve roster first. Joining the active party is a separate decision at a Party Management Point.
-- Capacity is persisted in save version 5; legacy version 4 capacities of 4–6 clamp to 3 on load.
+- Capacity has been persisted since save version 5; legacy version 4 capacities of 4–6 clamp to 3 on load.
 - Death remains permanent unless the user explicitly changes that pillar.
 - The management screen scrolls through an uncapped authored roster while the HUD remains limited to the active 1–3.
 
@@ -201,7 +203,7 @@ Continue the editor incrementally:
 3. Move the material catalog to an external manifest. **Partly done** — `MaterialDefinition` now carries
    `texturePath` and a core test asserts every referenced file exists, but the catalog itself is still
    compiled in rather than loaded from a manifest.
-4. Expand the campaign registry with exits that name their destination level and persistent campaign flags.
+4. ~~Expand the campaign registry with exits that name their destination level and persistent campaign flags.~~ **Done for destinations and persistent fired-event story state.** A dedicated named fact editor remains future work.
 5. ~~Teach the renderer to use actual tiled textures while retaining the placeholder fallback.~~ **Done**
    for walls, doors, floors, and non-sky ceilings. The next rendering slice should be object/sprite
    presentation and water-specific visuals.

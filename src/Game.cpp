@@ -171,6 +171,7 @@ void Game::selectCampaignLevel(int delta) {
     const auto& relative = campaign_.levels[static_cast<std::size_t>(campaignLevelIndex_)].path;
     levelPath_ = contentRoot_.empty() ? resolveContentPath(relative) : (std::filesystem::path{contentRoot_} / relative).string();
     editor_ = std::make_unique<LevelEditor>(levelPath_, projectFile_);
+    campaignState_.clear();
     resetWorld();
     audio_.play(AudioCue::Turn);
 }
@@ -186,6 +187,7 @@ void Game::prepareNewGame() {
 void Game::beginNewGame() {
     if (selectedStarters_.empty() || selectedStarters_.size() > Party::InitialCapacity) return;
     resetWorld();
+    campaignState_.clear();
     editorPlaytest_ = false;
     party_.reset();
     if (!roster_.beginNewGame(selectedStarters_) || !party_.setMembers(selectedStarters_)) {
@@ -209,6 +211,7 @@ void Game::beginEditorPlaytest() {
     const auto starters = roster_.starterIds();
     if (starters.empty()) return;
     resetWorld(editor_->level());
+    campaignState_.clear();
     party_.reset();
     if (!roster_.beginNewGame(starters) || !party_.setMembers(starters)) {
         enterMode(Mode::Editor);
@@ -659,6 +662,7 @@ void Game::updatePartyManagement() {
 }
 
 void Game::updatePlaying(float dt) {
+    worldChanged_ = false;
     if (IsKeyPressed(KEY_ESCAPE)) {
         audio_.play(AudioCue::UiBack);
         enterMode(editorPlaytest_ ? Mode::Editor : Mode::Title);
@@ -700,12 +704,16 @@ void Game::updatePlaying(float dt) {
     // Interactions may open a modal game screen. Do not let enemies take a
     // hidden turn on the same frame that the party-management screen opens.
     if (mode_ != Mode::Playing) return;
+    if (worldChanged_) return;
 
     const auto enemyEvent = combat_.updateEnemies(dt, roster_, party_, dungeon_, player_);
     if (enemyEvent.occurred()) setMessage(enemyEvent.message, enemyEvent.messageSeconds);
 
     if (party_.empty()) enterMode(Mode::Defeat);
-    if (dungeon_.tile(player_.x(), player_.y()) == Tile::Exit) enterMode(Mode::Victory);
+    if (dungeon_.tile(player_.x(), player_.y()) == Tile::Exit) {
+        const auto* passage = dungeon_.objectAt(player_.x(), player_.y());
+        if (passage == nullptr || passage->kind != WorldObjectKind::LevelTransition) enterMode(Mode::Victory);
+    }
 }
 
 void Game::move(int forward, int strafe) {
@@ -730,6 +738,11 @@ void Game::move(int forward, int strafe) {
     }
     currentRoomId_ = roomId;
     collectPickup();
+    if (dungeon_.tile(player_.x(), player_.y()) == Tile::Exit) {
+        const auto* object = dungeon_.objectAt(player_.x(), player_.y());
+        if (object && object->kind == WorldObjectKind::LevelTransition)
+            fireStoryTrigger(TriggerEvent::InteractObject, object->x, object->y, object->id);
+    }
 }
 
 void Game::turn(int delta) {
@@ -841,6 +854,8 @@ bool Game::fireStoryTrigger(TriggerEvent event, int x, int y, const std::string&
 }
 
 EventFireResult Game::fireEvent(const EventContext& context) {
+    std::string pendingLevelTransition;
+    std::string pendingArrival;
     WorldEventPresentation presentation;
     presentation.message = [this](const std::string& text) {
         if (storyMessages_.empty()) storyMessageTimer_ = 4.0f;
@@ -860,7 +875,72 @@ EventFireResult Game::fireEvent(const EventContext& context) {
         pendingReserveId_ = InvalidCharacterId;
         enterMode(Mode::PartyManagement);
     };
-    return dispatchWorldEvent(events_, context, dungeon_, keys_, presentation);
+    // Never replace events_ from inside EventRuntime::fire: doing so would
+    // destroy the dispatcher whose stack is still active. Commit the world
+    // swap only after dispatch has unwound.
+    presentation.transitionLevel = [&](const std::string& levelId, const std::string& arrivalId) {
+        pendingLevelTransition = levelId;
+        pendingArrival = arrivalId;
+        return !levelId.empty() && !arrivalId.empty();
+    };
+    const auto result = dispatchWorldEvent(events_, context, dungeon_, keys_, presentation);
+    if (!pendingLevelTransition.empty() && !transitionToLevel(pendingLevelTransition, pendingArrival))
+        setMessage("That passage is not connected to a valid arrival point.");
+    return result;
+}
+
+bool Game::loadRegisteredLevel(const std::string& levelId, LevelDefinition& level,
+                               std::string& path, int& campaignIndex) const {
+    const auto found = std::find_if(campaign_.levels.begin(), campaign_.levels.end(), [&](const auto& entry) {
+        return entry.id == levelId;
+    });
+    if (found == campaign_.levels.end()) return false;
+    campaignIndex = static_cast<int>(std::distance(campaign_.levels.begin(), found));
+    path = contentRoot_.empty() ? resolveContentPath(found->path)
+                                : (std::filesystem::path{contentRoot_} / found->path).string();
+    std::string error;
+    return LevelIO::load(path, level, error) && level.id == levelId;
+}
+
+bool Game::transitionToLevel(const std::string& levelId, const std::string& arrivalId) {
+    LevelDefinition definition;
+    std::string path;
+    int campaignIndex{};
+    if (!loadRegisteredLevel(levelId, definition, path, campaignIndex)) return false;
+    const auto arrival = std::find_if(definition.objects.begin(), definition.objects.end(), [&](const auto& object) {
+        return object.kind == WorldObjectKind::ArrivalPoint && object.id == arrivalId;
+    });
+    if (arrival == definition.objects.end()) return false;
+
+    Dungeon destination{definition};
+    EventRuntime destinationEvents;
+    if (!configureWorldEvents(destination, destinationEvents) ||
+        destination.blocksMovement(arrival->x, arrival->y) ||
+        std::any_of(destination.enemies().begin(), destination.enemies().end(), [&](const auto& enemy) {
+            return enemy.alive && enemy.x == arrival->x && enemy.y == arrival->y;
+        })) return false;
+
+    CampaignState nextState = campaignState_;
+    if (!nextState.capture(dungeon_, events_)) return false;
+    if (nextState.contains(levelId)) {
+        if (!nextState.restore(levelId, destination, destinationEvents)) return false;
+        nextState.erase(levelId);
+    }
+
+    dungeon_ = std::move(destination);
+    events_ = std::move(destinationEvents);
+    player_ = PlayerState{arrival->x, arrival->y, arrival->facing};
+    campaignState_ = std::move(nextState);
+    levelPath_ = std::move(path);
+    campaignLevelIndex_ = campaignIndex;
+    levelMusicPath_ = dungeon_.musicPath();
+    currentRoomId_.clear();
+    if (const auto* room = dungeon_.roomAt(player_.x(), player_.y())) currentRoomId_ = room->id;
+    combat_.reset();
+    gate_.reset();
+    worldChanged_ = true;
+    audio_.playMusic(levelMusicPath_);
+    return true;
 }
 
 void Game::enterMode(Mode mode) {
@@ -877,16 +957,55 @@ bool Game::save() const {
     std::error_code error;
     if (!file.parent_path().empty()) std::filesystem::create_directories(file.parent_path(), error);
     if (error) return false;
-    return SaveSystem::save(file.string(), player_, roster_, party_, dungeon_, keys_, potions_, xp_, &events_);
+    return SaveSystem::save(file.string(), player_, roster_, party_, dungeon_, keys_, potions_, xp_,
+                            &events_, &campaignState_);
 }
 
 bool Game::load() {
     const auto file = contentRoot_.empty() ? std::filesystem::path{"stoneveil.sav"} : std::filesystem::path{contentRoot_} / "saves/game.sav";
-    if (!SaveSystem::load(file.string(), player_, roster_, party_, dungeon_, keys_, potions_, xp_, &events_)) {
+    std::string savedLevel;
+    if (!SaveSystem::savedLevelId(file.string(), savedLevel)) {
         setMessage("No valid save file found.");
         audio_.play(AudioCue::Error);
         return false;
     }
+    Dungeon loadedDungeon = dungeon_;
+    std::string loadedPath = levelPath_;
+    int loadedCampaignIndex = campaignLevelIndex_;
+    if (!savedLevel.empty() && savedLevel != dungeon_.levelId()) {
+        LevelDefinition definition;
+        if (!loadRegisteredLevel(savedLevel, definition, loadedPath, loadedCampaignIndex)) {
+            setMessage("The save references a level that is no longer registered.");
+            audio_.play(AudioCue::Error);
+            return false;
+        }
+        loadedDungeon = Dungeon{definition};
+    }
+    PlayerState loadedPlayer = player_;
+    Roster loadedRoster = roster_;
+    Party loadedParty = party_;
+    EventRuntime loadedEvents;
+    CampaignState loadedCampaignState;
+    int loadedKeys = keys_;
+    int loadedPotions = potions_;
+    int loadedXp = xp_;
+    if (!SaveSystem::load(file.string(), loadedPlayer, loadedRoster, loadedParty, loadedDungeon,
+                          loadedKeys, loadedPotions, loadedXp, &loadedEvents, &loadedCampaignState)) {
+        setMessage("No valid save file found.");
+        audio_.play(AudioCue::Error);
+        return false;
+    }
+    player_ = loadedPlayer;
+    roster_ = std::move(loadedRoster);
+    party_ = std::move(loadedParty);
+    dungeon_ = std::move(loadedDungeon);
+    events_ = std::move(loadedEvents);
+    campaignState_ = std::move(loadedCampaignState);
+    keys_ = loadedKeys;
+    potions_ = loadedPotions;
+    xp_ = loadedXp;
+    levelPath_ = std::move(loadedPath);
+    campaignLevelIndex_ = loadedCampaignIndex;
     combat_.reset();
     gate_.reset();
     storyMessages_.clear();
@@ -895,6 +1014,7 @@ bool Game::load() {
     currentRoomId_ = room ? room->id : std::string{};
     levelMusicPath_ = dungeon_.musicPath();
     audio_.playMusic(levelMusicPath_);
+    worldChanged_ = true;
     setMessage("Save loaded.");
     audio_.play(AudioCue::Save);
     return true;
@@ -979,6 +1099,7 @@ void Game::drawWorld() const {
             else if (visibleObject->kind == WorldObjectKind::Npc) { body = {76, 105, 126, 255}; glyph = "@"; }
             else if (visibleObject->kind == WorldObjectKind::Recruit) { body = {80, 128, 99, 255}; glyph = "+"; }
             else if (visibleObject->kind == WorldObjectKind::PartyManagement) { body = {146, 116, 58, 255}; glyph = "M"; }
+            else if (visibleObject->kind == WorldObjectKind::LevelTransition) { body = {84, 109, 151, 255}; glyph = ">"; }
             DrawRectangle(cx - size / 2, cy - size, size, size, body);
             DrawRectangleLines(cx - size / 2, cy - size, size, size, Color{220, 193, 134, 255});
             const int glyphSize = std::max(24, size / 2);

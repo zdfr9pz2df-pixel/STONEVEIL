@@ -30,16 +30,21 @@ bool configureWorldEvents(const Dungeon& dungeon, EventRuntime& runtime) {
         }
     }
     for (const auto& object : dungeon.objects()) {
-        if (object.kind != WorldObjectKind::Recruit && object.kind != WorldObjectKind::PartyManagement) continue;
+        if (object.kind != WorldObjectKind::Recruit && object.kind != WorldObjectKind::PartyManagement &&
+            object.kind != WorldObjectKind::LevelTransition) continue;
         EventDefinition event;
-        event.id = object.id + (object.kind == WorldObjectKind::Recruit ? ".recruit" : ".manage");
+        event.id = object.id + (object.kind == WorldObjectKind::Recruit ? ".recruit" :
+            (object.kind == WorldObjectKind::PartyManagement ? ".manage" : ".transition"));
         event.name = object.name;
         event.trigger = {EventTriggerType::InteractObject, -1, -1, object.id};
         event.occurrence = EventOccurrence::EveryTime;
         EventAction action;
-        action.type = object.kind == WorldObjectKind::Recruit
-            ? EventActionType::RecruitCharacter : EventActionType::OpenPartyManagement;
+        action.type = object.kind == WorldObjectKind::Recruit ? EventActionType::RecruitCharacter :
+            (object.kind == WorldObjectKind::PartyManagement ? EventActionType::OpenPartyManagement :
+             EventActionType::TransitionLevel);
         action.intValue = static_cast<int>(object.characterId);
+        action.targetId = object.destinationLevelId;
+        action.assetId = object.destinationArrivalId;
         action.text = object.text;
         event.actions.push_back(std::move(action));
         if (!configured.addEvent(std::move(event))) return false;
@@ -92,6 +97,12 @@ EventFireResult dispatchWorldEvent(EventRuntime& runtime, const EventContext& co
             case EventActionType::OpenPartyManagement:
                 if (presentation.message && !action.text.empty()) presentation.message(action.text);
                 if (presentation.openPartyManagement) presentation.openPartyManagement();
+                break;
+            case EventActionType::TransitionLevel:
+                if (presentation.message && !action.text.empty()) presentation.message(action.text);
+                if (!presentation.transitionLevel || !presentation.transitionLevel(action.targetId, action.assetId)) {
+                    if (presentation.message) presentation.message("That passage is not connected to a valid arrival point.");
+                }
                 break;
             default:
                 // These PR compiler actions have no editor surface yet. Never

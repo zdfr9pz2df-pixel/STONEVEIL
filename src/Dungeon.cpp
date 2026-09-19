@@ -151,7 +151,7 @@ bool Dungeon::doorRequiresKeyAt(int x, int y) const {
 
 const WorldObject* Dungeon::objectAt(int x, int y) const {
     for (const auto& object : objects_) {
-        if (object.x == x && object.y == y) return &object;
+        if (object.kind != WorldObjectKind::ArrivalPoint && object.x == x && object.y == y) return &object;
     }
     return nullptr;
 }

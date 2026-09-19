@@ -17,7 +17,17 @@ struct DoorPlacement {
     bool locked{true};
 };
 
-enum class WorldObjectKind { Prop, Shrine, Note, Corpse, Npc, Recruit, PartyManagement };
+enum class WorldObjectKind {
+    Prop,
+    Shrine,
+    Note,
+    Corpse,
+    Npc,
+    Recruit,
+    PartyManagement,
+    ArrivalPoint,
+    LevelTransition,
+};
 
 struct WorldObject {
     std::string id;
@@ -28,6 +38,9 @@ struct WorldObject {
     std::string text;
     bool blocksMovement{false};
     CharacterId characterId{InvalidCharacterId};
+    int facing{0};
+    std::string destinationLevelId;
+    std::string destinationArrivalId;
 };
 
 struct StoryRoom {

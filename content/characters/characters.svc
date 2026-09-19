@@ -1,0 +1,7 @@
+STONEVEIL_CHARACTERS 1
+4
+1001 "starter.vanguard" "Vanguard" "Guardian" "Hardiest front-line fighter." 42 9 1 "" "steadfast,protective" "attack.melee" "ability.heal" "weapon,armor" "Iron sword and watch shield" 1 "The Vanguard answers the call."
+1002 "starter.ranger" "Ranger" "Pathfinder" "Balanced explorer and striker." 32 7 1 "" "alert,resourceful" "attack.melee" "ability.heal" "weapon,armor" "Hunting bow and travel knife" 1 "The Ranger joins the expedition."
+1003 "starter.mystic" "Mystic" "Arcanist" "Fragile future spell specialist." 27 6 1 "" "curious,perceptive" "attack.melee" "ability.heal" "weapon,focus" "Ashwood staff and veil charm" 1 "The Mystic follows the hidden current."
+2001 "recruit.elska" "Elska" "Spearwarden" "A stranded Underkeep survivor who knows the old passages." 36 8 0 "" "wary,loyal,underground guide" "attack.melee" "ability.heal" "weapon,armor" "Mason's spear and patched mail" 1 "Elska lowers her spear. 'I know a way through. I will not take it alone.'"
+END

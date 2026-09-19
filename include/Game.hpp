@@ -3,6 +3,7 @@
 #include "ActionGate.hpp"
 #include "AudioSystem.hpp"
 #include "Campaign.hpp"
+#include "CampaignState.hpp"
 #include "Character.hpp"
 #include "CombatSystem.hpp"
 #include "Dungeon.hpp"
@@ -42,6 +43,9 @@ private:
     void selectCampaignLevel(int delta);
     void requestQuit();
     void adoptEditorProject();
+    bool transitionToLevel(const std::string& levelId, const std::string& arrivalId);
+    bool loadRegisteredLevel(const std::string& levelId, LevelDefinition& level,
+                             std::string& path, int& campaignIndex) const;
     bool fireStoryTrigger(TriggerEvent event, int x, int y, const std::string& subjectId = {});
     EventFireResult fireEvent(const EventContext& context);
     void update(float dt);
@@ -78,6 +82,7 @@ private:
     AudioSystem audio_{};
     std::unique_ptr<LevelEditor> editor_;
     CampaignDefinition campaign_{};
+    CampaignState campaignState_{};
     int campaignLevelIndex_{0};
     std::string levelPath_;
     std::string projectFile_;
@@ -86,6 +91,7 @@ private:
     std::string levelMusicPath_;
     bool editorPlaytest_{false};
     bool quitRequested_{false};
+    bool worldChanged_{false};
     std::vector<CharacterId> selectedStarters_{};
     int starterCursor_{0};
     int managementCursor_{0};

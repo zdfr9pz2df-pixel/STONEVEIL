@@ -157,16 +157,17 @@ disabled during a playtest, deliberately — see `Game::editorPlaytest_`.
 
 **Format versions**
 
-- `.svl` is at **version 7**. Versions 1–6 still load; saving always writes the current version.
+- `.svl` is at **version 8**. Versions 1–7 still load; saving always writes the current version.
   Backward loading is a non-regression requirement. Versions 3–5 added enemy archetypes, water, and
   music. Version 6 adds stable pickup/enemy/door IDs, door lock/gate metadata, world objects, story
-  rooms, and triggers. Version 7 adds stable character references for recruit objects. Older levels
+  rooms, and triggers. Version 7 adds stable character references for recruit objects. Version 8 adds
+  editor-only arrival markers and level transitions using registered level and arrival IDs. Older levels
   receive deterministic legacy IDs and locked-door metadata in memory.
 - `.campaign` is at **version 1** and lists stable level IDs, display names, a starting level, and safe
   relative level paths. The title screen can cycle registered levels without recompilation.
 - `.svc` character catalogs are at **version 1**. They are project definitions,
   exported with the game, and are not embedded in player saves.
-- `.sav` is at **version 5**, with readers for 2–4 and the pre-versioned layout. Version 5 stores stable enemy/pickup IDs and event fired-counts; see `SAVE_MIGRATIONS.md`. `SaveSystem::load`
+- `.sav` is at **version 6**, with readers for 2–5 and the pre-versioned layout. Version 5 stores stable enemy/pickup IDs and event fired-counts. Version 6 adds inactive visited-level snapshots and restores the correct active registered level; see `SAVE_MIGRATIONS.md`. `SaveSystem::load`
   copies the caller's `Dungeon` and overwrites tiles, pickups and enemies — so anything that is
   *authored* level data (materials, lights, dimensions) survives a load without touching the save
   format. That is why lights needed no save-version bump.
@@ -197,9 +198,9 @@ cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-raylib 5.5 is fetched by CMake on first configure. Five CTest cases: `stoneveil_core_tests` (the core
-checks), `stoneveil_event_tests`, `stoneveil_compatibility_tests`, `stoneveil_document_tests`, and
-`stoneveil_editor_validate` (runs the real exe headlessly against the shipped level).
+raylib 5.5 is fetched by CMake on first configure. Ten Release-active CTest cases include core,
+events, compatibility, editor/document, project, recruitment, and the end-to-end campaign loop;
+`stoneveil_editor_validate` runs the real executable headlessly against the shipped Gatehouse.
 CI is `.github/workflows/windows-build.yml` and must keep uploading the `STONEVEIL-Windows-Playtest`
 artifact.
 
@@ -216,5 +217,5 @@ that is pre-existing and harmless.
   sprite appears well before you can hit it.
 - `LevelOne.cpp` duplicates the Gatehouse by hand. Any edit to `gatehouse.svl` should be mirrored
   there or the fallback drifts.
-- The campaign registry is read-only in the UI; adding/removing registry entries still means editing
-  `content/campaigns/stoneveil.campaign` as text.
+- Adding/removing registry entries still uses the Project panel's register-level workflow; a richer
+  drag-to-reorder campaign graph view is not yet present.

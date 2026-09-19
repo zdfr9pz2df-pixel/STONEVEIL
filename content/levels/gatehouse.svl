@@ -1,4 +1,4 @@
-STONEVEIL_LEVEL 6
+STONEVEIL_LEVEL 8
 ID "gatehouse.level-1"
 NAME "LEVEL 1  THE GATEHOUSE"
 MUSIC "content/audio/music/gatehouse-drone.wav"
@@ -53,11 +53,13 @@ LIGHTS 4
 WATER 0
 DOORS 1
 "door.gatehouse.main-lock" 7 4 DOOR 1
-OBJECTS 4
-"note.gatehouse.watch-order" NOTE 3 2 0 "Watch Order" "Third bell: keep the lower gate barred. Something below has learned our knocking code."
-"shrine.gatehouse.veil" SHRINE 3 10 0 "Veil Shrine" "The worn stone is warm beneath your hand, though no flame burns here."
-"corpse.gatehouse.jailer" CORPSE 12 7 0 "The Jailer" "The corpse still grips an empty key ring. The final key was taken deeper in."
-"npc.gatehouse.wounded-scout" NPC 12 12 0 "Wounded Scout" "Do not trust the quiet beyond the iron gate. The quiet is how it hunts."
+OBJECTS 6
+"note.gatehouse.watch-order" NOTE 3 2 0 "Watch Order" "Third bell: keep the lower gate barred. Something below has learned our knocking code." 0 0 "" ""
+"shrine.gatehouse.veil" SHRINE 3 10 0 "Veil Shrine" "The worn stone is warm beneath your hand, though no flame burns here." 0 0 "" ""
+"corpse.gatehouse.jailer" CORPSE 12 7 0 "The Jailer" "The corpse still grips an empty key ring. The final key was taken deeper in." 0 0 "" ""
+"npc.gatehouse.wounded-scout" NPC 12 12 0 "Wounded Scout" "Do not trust the quiet beyond the iron gate. The quiet is how it hunts." 0 0 "" ""
+"arrival.gatehouse.lower-gate" ARRIVAL_POINT 13 12 0 "Lower Gate Arrival" "Return from the Underkeep." 0 3 "" ""
+"transition.gatehouse.descent" LEVEL_TRANSITION 13 13 0 "Descend to the Underkeep" "Cold air rises from the stair beneath the gate." 0 0 "underkeep.level-1" "arrival.underkeep.upper-stair"
 ROOMS 4
 "room.gatehouse.entry" 1 1 6 5 "The Abandoned Watch" "Teach observation, keys, and the first choice of route." "Stale vigilance" "The garrison expected an attack from outside. The danger came from below." "Unease and curiosity"
 "room.gatehouse.lock" 8 1 7 6 "The Sealed Watch Hall" "Make the first locked threshold feel consequential." "Held breath" "The main lock was turned after the last watch failed to answer." "Commitment"

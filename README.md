@@ -32,6 +32,8 @@ STONEVEIL is a systems-first C++ dungeon crawler prototype inspired by the feel 
 - In-editor text tools for notes, inscriptions, dialogue, room lore, and discovery messages
 - Undo/redo, New Level, Save As, and unsaved-draft warnings
 - Versioned campaign registry with a title-screen level selector
+- Arrival-point and level-transition brushes whose destinations come from registered project levels
+- A connected Gatehouse/Underkeep campaign loop with persistent party, recruits, deaths, inventory, XP, lore-event state, and visited-level state
 - Drag-and-drop audio import into the editor's music library
 - Clipboard blueprint import for Codex-assisted level generation
 - Resizable maps from 4×4 through 64×64 with automatic canvas fitting

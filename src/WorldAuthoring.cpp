@@ -28,6 +28,8 @@ const char* worldObjectKindName(WorldObjectKind kind) {
         case WorldObjectKind::Npc: return "NPC";
         case WorldObjectKind::Recruit: return "RECRUIT";
         case WorldObjectKind::PartyManagement: return "PARTY_MANAGEMENT";
+        case WorldObjectKind::ArrivalPoint: return "ARRIVAL_POINT";
+        case WorldObjectKind::LevelTransition: return "LEVEL_TRANSITION";
     }
     return "PROP";
 }
@@ -40,6 +42,8 @@ bool parseWorldObjectKind(const std::string& value, WorldObjectKind& kind) {
     else if (value == "NPC") kind = WorldObjectKind::Npc;
     else if (value == "RECRUIT") kind = WorldObjectKind::Recruit;
     else if (value == "PARTY_MANAGEMENT") kind = WorldObjectKind::PartyManagement;
+    else if (value == "ARRIVAL_POINT") kind = WorldObjectKind::ArrivalPoint;
+    else if (value == "LEVEL_TRANSITION") kind = WorldObjectKind::LevelTransition;
     else return false;
     return true;
 }

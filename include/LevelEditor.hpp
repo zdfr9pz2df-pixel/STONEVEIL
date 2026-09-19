@@ -73,6 +73,8 @@ private:
         Npc,
         Recruit,
         PartyManagement,
+        ArrivalPoint,
+        LevelTransition,
     };
 
     enum class TextField {
@@ -135,6 +137,7 @@ private:
     void updateTextEdit();
     std::string* activeText();
     void finishTextEdit();
+    bool selectNextTransitionDestination(WorldObject& object);
 
     bool hasObjectAt(int x, int y) const;
     bool hasLightAt(int x, int y) const;

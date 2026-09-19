@@ -45,6 +45,7 @@ enum class EventActionType {
     SendSignal,
     RecruitCharacter,
     OpenPartyManagement,
+    TransitionLevel,
 };
 
 enum class EventOccurrence {

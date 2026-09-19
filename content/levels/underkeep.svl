@@ -1,0 +1,67 @@
+STONEVEIL_LEVEL 8
+ID "underkeep.level-1"
+NAME "LEVEL 2  THE UNDERKEEP"
+MUSIC "content/audio/music/gatehouse-drone.wav"
+SIZE 16 16
+SPAWN 2 2 1
+DEFAULT_WALL "material.wall.cave.mossy-rock-wet"
+DEFAULT_FLOOR "material.floor.cave.uneven-stone"
+CEILING_MODE MATERIAL
+DEFAULT_CEILING "material.ceiling.cave.rocky"
+MAP
+################
+#......#.......#
+#......#.......#
+#..##..#..###..#
+#..##.....#....#
+#......#..#....#
+###.####..#....#
+#............#.#
+#.....#......#.#
+#.####...#####.#
+#.#...##.......#
+#.#....#..###..#
+#...##....#....#
+#...##....#..E.#
+#..............#
+################
+END_MAP
+PICKUPS 2
+KEY 5 2 "pickup.underkeep.key-1"
+POTION 10 8 "pickup.underkeep.potion-1"
+ENEMIES 2
+10 2 24 "enemy.prowler" "enemy.underkeep.prowler-1"
+11 8 30 "enemy.brute" "enemy.underkeep.brute-1"
+SURFACE_OVERRIDES 8
+1 1 FLOOR MATERIAL "material.floor.cave.shallow-water"
+2 1 FLOOR MATERIAL "material.floor.cave.shallow-water"
+3 1 FLOOR MATERIAL "material.floor.cave.shallow-water"
+0 7 WALL MATERIAL "material.wall.cave.mossy-rock-vines"
+5 9 WALL MATERIAL "material.wall.cave.mossy-rock-root-trace"
+10 12 WALL MATERIAL "material.wall.cave.mossy-rock-soft-lichen"
+12 13 FLOOR MATERIAL "material.floor.cave.mud"
+13 13 CEILING MATERIAL "material.ceiling.cave.timber-supports"
+LIGHTS 4
+3 3 "light.torch.iron-sconce"
+7 6 "light.torch.iron-sconce"
+2 10 "light.torch.tallow-candle"
+10 13 "light.torch.pitch-brazier"
+WATER 0
+DOORS 0
+OBJECTS 6
+"arrival.underkeep.upper-stair" ARRIVAL_POINT 2 2 0 "Upper Stair Arrival" "Arrival from the Gatehouse." 0 1 "" ""
+"note.underkeep.masons" NOTE 3 2 0 "Mason's Warning" "We sealed the old hall, but every morning the mortar is wet on the inside." 0 0 "" ""
+"recruit.underkeep.elska" RECRUIT 6 7 1 "Elska" "Elska lowers her spear. 'I know a way through. I will not take it alone.'" 2001 0 "" ""
+"party.underkeep.camp" PARTY_MANAGEMENT 7 7 0 "Underkeep Camp" "Choose which recruited companions travel with you." 0 0 "" ""
+"corpse.underkeep.mason" CORPSE 12 12 0 "The Last Mason" "Stone dust fills the dead mason's mouth. His hammer points toward the sealed stair." 0 0 "" ""
+"transition.underkeep.ascent" LEVEL_TRANSITION 13 13 0 "Return to the Gatehouse" "The stair climbs toward the abandoned watch." 0 0 "gatehouse.level-1" "arrival.gatehouse.lower-gate"
+ROOMS 3
+"room.underkeep.entry" 1 1 6 5 "The Weeping Stair" "Confirm that the campaign has moved into a persistent second place." "Cold descent" "Water has run upward along these walls since the breach." "Dislocation"
+"room.underkeep.camp" 1 7 12 3 "The Survivor's Camp" "Introduce recruitment and active-party management." "Guarded relief" "One survivor kept a lamp burning for those who might follow." "Earned companionship"
+"room.underkeep.seal" 8 10 7 5 "The Broken Seal" "Return the party to the Gatehouse while preserving what happened here." "Uneasy resolve" "The builders did not construct this threshold. They built around it." "Forward pull"
+TRIGGERS 4
+"trigger.underkeep.arrival" ENTER_ROOM 1 1 "room.underkeep.entry" 1 "The stair closes behind you with the sound of a distant stone door."
+"trigger.underkeep.note" INTERACT_OBJECT 3 2 "note.underkeep.masons" 1 "The final line was carved with a chisel: DO NOT LET IT LEARN YOUR NAME."
+"trigger.underkeep.recruit" INTERACT_OBJECT 6 7 "recruit.underkeep.elska" 1 "Elska joins the reserve roster. The camp now serves as a party-management point."
+"trigger.underkeep.seal" ENTER_ROOM 8 10 "room.underkeep.seal" 1 "Behind the broken seal, the stone bears tool marks older than the keep above."
+END

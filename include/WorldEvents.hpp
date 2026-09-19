@@ -13,6 +13,7 @@ struct WorldEventPresentation {
     std::function<void(WorldEventCue)> cue;
     std::function<bool(CharacterId)> recruit;
     std::function<void()> openPartyManagement;
+    std::function<bool(const std::string&, const std::string&)> transitionLevel;
 };
 
 bool configureWorldEvents(const Dungeon& dungeon, EventRuntime& runtime);

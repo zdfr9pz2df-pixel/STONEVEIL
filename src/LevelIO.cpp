@@ -19,7 +19,7 @@
 
 namespace sv {
 namespace {
-constexpr int LevelFormatVersion = 7;
+constexpr int LevelFormatVersion = 8;
 constexpr int MinimumLevelFormatVersion = 1;
 constexpr std::size_t MaxLevelObjects = 1024;
 
@@ -302,6 +302,8 @@ bool LevelIO::load(const std::string& path, LevelDefinition& level, std::string&
             input >> std::quoted(object.id) >> kind >> object.x >> object.y >> blocks >>
                 std::quoted(object.name) >> std::quoted(object.text);
             if (input && version >= 7) input >> object.characterId;
+            if (input && version >= 8) input >> object.facing >> std::quoted(object.destinationLevelId) >>
+                std::quoted(object.destinationArrivalId);
             if (!input || !parseWorldObjectKind(kind, object.kind) || (blocks != 0 && blocks != 1)) {
                 error = "Invalid world object entry.";
                 return false;
@@ -433,7 +435,8 @@ bool LevelIO::save(const std::string& path, const LevelDefinition& level, std::s
     for (const auto& object : level.objects) {
         output << std::quoted(object.id) << ' ' << worldObjectKindName(object.kind) << ' ' << object.x << ' '
                << object.y << ' ' << (object.blocksMovement ? 1 : 0) << ' ' << std::quoted(object.name) << ' '
-               << std::quoted(object.text) << ' ' << object.characterId << '\n';
+               << std::quoted(object.text) << ' ' << object.characterId << ' ' << object.facing << ' '
+               << std::quoted(object.destinationLevelId) << ' ' << std::quoted(object.destinationArrivalId) << '\n';
     }
     output << "ROOMS " << level.rooms.size() << '\n';
     for (const auto& room : level.rooms) {
@@ -628,6 +631,7 @@ std::vector<std::string> LevelIO::validate(const LevelDefinition& level) {
     }
 
     std::set<std::pair<int, int>> objectCells;
+    std::set<std::pair<int, int>> arrivalCells;
     for (const auto& object : level.objects) {
         validateId(object.id, "World object");
         if (!coordinateIsWalkable(level, object.x, object.y)) errors.push_back("A world object is outside the walkable map.");
@@ -636,8 +640,25 @@ std::vector<std::string> LevelIO::validate(const LevelDefinition& level) {
             errors.push_back("Recruit objects need a character reference.");
         if (object.kind != WorldObjectKind::Recruit && object.characterId != InvalidCharacterId)
             errors.push_back("Only recruit objects may reference a character.");
-        if (!objectCells.insert({object.x, object.y}).second) errors.push_back("A cell holds more than one world object.");
-        if (!occupiedGameplayCells.insert({object.x, object.y}).second) errors.push_back("A gameplay cell holds overlapping objects.");
+        if (object.kind == WorldObjectKind::ArrivalPoint) {
+            if (object.facing < 0 || object.facing > 3) errors.push_back("Arrival facing must be between 0 and 3.");
+            if (!arrivalCells.insert({object.x, object.y}).second) errors.push_back("A cell holds more than one arrival point.");
+        } else {
+            if (object.facing != 0) errors.push_back("Only arrival points may set a facing direction.");
+            if (!objectCells.insert({object.x, object.y}).second) errors.push_back("A cell holds more than one world object.");
+            if (!occupiedGameplayCells.insert({object.x, object.y}).second) errors.push_back("A gameplay cell holds overlapping objects.");
+        }
+        if (object.kind == WorldObjectKind::LevelTransition) {
+            if (object.destinationLevelId.empty() || object.destinationArrivalId.empty())
+                errors.push_back("Level transitions need a registered destination and arrival point.");
+        } else if (!object.destinationLevelId.empty() || !object.destinationArrivalId.empty()) {
+            errors.push_back("Only level transitions may reference a destination.");
+        }
+    }
+    for (const auto& arrivalCell : arrivalCells) {
+        if (arrivalCell != std::pair<int, int>{level.spawnX, level.spawnY} &&
+            occupiedGameplayCells.find(arrivalCell) != occupiedGameplayCells.end())
+            errors.push_back("Arrival points may overlap the player spawn, but no other gameplay object.");
     }
 
     for (const auto& room : level.rooms) {

@@ -13,7 +13,7 @@
 
 namespace sv {
 namespace {
-constexpr int CurrentSaveVersion = 5;
+constexpr int CurrentSaveVersion = 6;
 constexpr std::size_t MaxSavedEntities = 1024;
 
 bool readRosterAndParty(std::istream& input, Roster& roster, Party& party, int version) {
@@ -63,7 +63,94 @@ bool readRosterAndParty(std::istream& input, Roster& roster, Party& party, int v
     return input && party.setMembers(ids) && roster.setActiveParty(ids);
 }
 
-bool readVersionThreeDungeon(std::istream& input, Dungeon& dungeon, int version, EventRuntime& events) {
+bool readCampaignSnapshots(std::istream& input, CampaignState& campaignState, const std::string& activeLevelId) {
+    std::string label;
+    std::size_t count{};
+    input >> label >> count;
+    if (!input || label != "CAMPAIGN_STATES" || count > 256) return false;
+    std::vector<LevelRuntimeSnapshot> snapshots;
+    snapshots.reserve(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        LevelRuntimeSnapshot snapshot;
+        input >> label >> std::quoted(snapshot.levelId) >> snapshot.width >> snapshot.height;
+        if (!input || label != "LEVEL_STATE" || snapshot.levelId == activeLevelId || snapshot.width < 1 ||
+            snapshot.height < 1 || snapshot.width > LevelDefinition::MaximumDimension ||
+            snapshot.height > LevelDefinition::MaximumDimension) return false;
+        input >> label;
+        if (!input || label != "TILES") return false;
+        const auto tileCount = static_cast<std::size_t>(snapshot.width) * static_cast<std::size_t>(snapshot.height);
+        snapshot.tiles.reserve(tileCount);
+        for (std::size_t tile = 0; tile < tileCount; ++tile) {
+            int value{};
+            input >> value;
+            if (!input || value < static_cast<int>(Tile::Floor) || value > static_cast<int>(Tile::SecretDoorClosed)) return false;
+            snapshot.tiles.push_back(static_cast<Tile>(value));
+        }
+        std::size_t pickupCount{};
+        input >> label >> pickupCount;
+        if (!input || label != "PICKUPS" || pickupCount > MaxSavedEntities) return false;
+        for (std::size_t pickupIndex = 0; pickupIndex < pickupCount; ++pickupIndex) {
+            Pickup pickup;
+            int type{};
+            input >> std::quoted(pickup.id) >> type >> pickup.x >> pickup.y >> pickup.taken;
+            if (!input || type < static_cast<int>(Pickup::Type::Key) || type > static_cast<int>(Pickup::Type::Potion)) return false;
+            pickup.type = static_cast<Pickup::Type>(type);
+            snapshot.pickups.push_back(std::move(pickup));
+        }
+        std::size_t enemyCount{};
+        input >> label >> enemyCount;
+        if (!input || label != "ENEMIES" || enemyCount > MaxSavedEntities) return false;
+        for (std::size_t enemyIndex = 0; enemyIndex < enemyCount; ++enemyIndex) {
+            Enemy enemy;
+            input >> std::quoted(enemy.id) >> enemy.x >> enemy.y >> enemy.hp >> enemy.alive >> enemy.attackCooldown;
+            if (!input) return false;
+            snapshot.enemies.push_back(std::move(enemy));
+        }
+        std::size_t eventCount{};
+        input >> label >> eventCount;
+        if (!input || label != "EVENTS" || eventCount > 4096) return false;
+        for (std::size_t eventIndex = 0; eventIndex < eventCount; ++eventIndex) {
+            std::string id;
+            std::uint32_t fired{};
+            input >> std::quoted(id) >> fired;
+            if (!input || !snapshot.firedEventCounts.emplace(std::move(id), fired).second) return false;
+        }
+        input >> label;
+        if (!input || label != "END_LEVEL_STATE") return false;
+        snapshots.push_back(std::move(snapshot));
+    }
+    return campaignState.replaceSnapshots(std::move(snapshots));
+}
+
+void writeCampaignSnapshots(std::ostream& output, const CampaignState* campaignState) {
+    const std::size_t count = campaignState == nullptr ? 0 : campaignState->snapshots().size();
+    output << "CAMPAIGN_STATES " << count << '\n';
+    if (campaignState == nullptr) return;
+    for (const auto& entry : campaignState->snapshots()) {
+        const auto& snapshot = entry.second;
+        output << "LEVEL_STATE " << std::quoted(snapshot.levelId) << ' ' << snapshot.width << ' ' << snapshot.height << '\n';
+        output << "TILES";
+        for (const auto tile : snapshot.tiles) output << ' ' << static_cast<int>(tile);
+        output << '\n';
+        output << "PICKUPS " << snapshot.pickups.size() << '\n';
+        for (const auto& pickup : snapshot.pickups)
+            output << std::quoted(pickup.id) << ' ' << static_cast<int>(pickup.type) << ' ' << pickup.x << ' '
+                   << pickup.y << ' ' << pickup.taken << '\n';
+        output << "ENEMIES " << snapshot.enemies.size() << '\n';
+        for (const auto& enemy : snapshot.enemies)
+            output << std::quoted(enemy.id) << ' ' << enemy.x << ' ' << enemy.y << ' ' << enemy.hp << ' '
+                   << enemy.alive << ' ' << enemy.attackCooldown << '\n';
+        std::vector<std::pair<std::string, std::uint32_t>> counts(snapshot.firedEventCounts.begin(),
+                                                                  snapshot.firedEventCounts.end());
+        std::sort(counts.begin(), counts.end());
+        output << "EVENTS " << counts.size() << '\n';
+        for (const auto& fired : counts) output << std::quoted(fired.first) << ' ' << fired.second << '\n';
+        output << "END_LEVEL_STATE\n";
+    }
+}
+
+bool readVersionThreeDungeon(std::istream& input, Dungeon& dungeon, int version, EventRuntime& events,
+                             CampaignState& campaignState) {
     std::string label;
     std::string levelId;
     input >> label >> levelId;
@@ -152,6 +239,7 @@ bool readVersionThreeDungeon(std::istream& input, Dungeon& dungeon, int version,
         }
         if (!events.restoreFiredCounts(counts)) return false;
     }
+    if (version >= 6 && !readCampaignSnapshots(input, campaignState, dungeon.levelId())) return false;
     input >> label;
     return input && label == "END";
 }
@@ -177,12 +265,14 @@ bool SaveSystem::save(const std::string& path,
                       int keys,
                       int potions,
                       int xp,
-                      const EventRuntime* events) {
+                      const EventRuntime* events,
+                      const CampaignState* campaignState) {
     Roster validatedRoster = roster;
     EventRuntime validatedEvents;
     if (keys < 0 || potions < 0 || xp < 0 || !validatedRoster.restore(roster.records()) ||
         !configureWorldEvents(dungeon, validatedEvents) ||
         (events && !validatedEvents.restoreFiredCounts(events->firedCounts()))) return false;
+    if (campaignState && campaignState->contains(dungeon.levelId())) return false;
     for (const auto& record : roster.records()) {
         if ((record.status == CharacterStatus::Active) != party.contains(record.id)) return false;
     }
@@ -227,6 +317,7 @@ bool SaveSystem::save(const std::string& path,
     std::sort(counts.begin(), counts.end());
     output << "EVENTS " << counts.size() << '\n';
     for (const auto& entry : counts) output << std::quoted(entry.first) << ' ' << entry.second << '\n';
+    writeCampaignSnapshots(output, campaignState);
     output << "END\n";
     std::string error;
     return output && writeFileAtomically(path, output.str(), error);
@@ -240,12 +331,14 @@ bool SaveSystem::load(const std::string& path,
                       int& keys,
                       int& potions,
                       int& xp,
-                      EventRuntime* events) {
+                      EventRuntime* events,
+                      CampaignState* campaignState) {
     std::ifstream input(path);
     if (!input) return false;
 
     Dungeon loadedDungeon = dungeon;
     EventRuntime loadedEvents;
+    CampaignState loadedCampaignState;
     if (!configureWorldEvents(loadedDungeon, loadedEvents)) return false;
     PlayerState loadedPlayer{loadedDungeon.spawnX(), loadedDungeon.spawnY(), loadedDungeon.spawnDirection()};
     Roster loadedRoster = roster;
@@ -266,7 +359,7 @@ bool SaveSystem::load(const std::string& path,
         input >> playerX >> playerY >> playerDirection >> loadedKeys >> loadedPotions >> loadedXp;
         if (!input || !readRosterAndParty(input, loadedRoster, loadedParty, version)) return false;
         if (version >= 3) {
-            if (!readVersionThreeDungeon(input, loadedDungeon, version, loadedEvents)) return false;
+            if (!readVersionThreeDungeon(input, loadedDungeon, version, loadedEvents, loadedCampaignState)) return false;
         } else if (!readVersionTwoEnemies(input, loadedDungeon)) {
             return false;
         }
@@ -305,7 +398,30 @@ bool SaveSystem::load(const std::string& path,
     potions = loadedPotions;
     xp = loadedXp;
     if (events) *events = std::move(loadedEvents);
+    if (campaignState) *campaignState = std::move(loadedCampaignState);
     return true;
+}
+
+bool SaveSystem::savedLevelId(const std::string& path, std::string& levelId) {
+    levelId.clear();
+    std::ifstream input(path);
+    if (!input) return false;
+    std::string firstLine;
+    if (!std::getline(input, firstLine)) return false;
+    std::istringstream header(firstLine);
+    std::string signature;
+    int version{};
+    if (!(header >> signature) || signature != "STONEVEIL_SAVE") return true;
+    if (!(header >> version) || version < 2 || version > CurrentSaveVersion) return false;
+    if (version < 3) return true;
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.rfind("LEVEL ", 0) != 0) continue;
+        std::istringstream record(line);
+        std::string label;
+        return static_cast<bool>(record >> label >> levelId) && label == "LEVEL" && !levelId.empty();
+    }
+    return false;
 }
 
 } // namespace sv

@@ -2,10 +2,11 @@
 
 ## Authored levels
 
-Level format is version 7. Readers accept versions 1–7. Version 7 adds a stable
+Level format is version 8. Readers accept versions 1–8. Version 7 adds a stable
 numeric character reference to world-object records so recruit interactions do
-not depend on display names or list order. Version 6 objects load with no
-character reference and save back in version 7. Older levels gain
+not depend on display names or list order. Version 8 adds arrival facing and
+stable destination-level/arrival IDs for campaign transitions. Older objects
+load with empty transition data and save back in version 8. Older levels gain
 deterministic pickup/enemy/door IDs in memory and upgrade when saved. Map row
 shape is now checked before legacy ID migration. Compiled door event IDs must
 not collide with authored trigger IDs.
@@ -19,7 +20,14 @@ definition maximum without mutating the active game. Adding an unrecruited
 definition is compatible with an older save; removing or renumbering a character
 referenced by a save requires a future explicit project migration.
 
-Current writer: `STONEVEIL_SAVE 5`. Readers: pre-versioned, 2, 3, 4, 5.
+Current writer: `STONEVEIL_SAVE 6`. Readers: pre-versioned, 2, 3, 4, 5, 6.
+
+Version 6 adds `CAMPAIGN_STATES`: one stable-ID snapshot for every visited,
+inactive level. Each snapshot stores mutable tiles, pickups, enemies, and fired
+event counts. The active `LEVEL` remains in the main save block. Load first
+reads that active level ID so the game can instantiate the correct registered
+authored level before applying state. Roster records, permanent deaths, reserve
+recruits, active party, inventory, and XP remain campaign-wide.
 
 Version 5 adds quoted stable IDs before each pickup/enemy record and an `EVENTS`
 section before `END`. Each event entry is a quoted ID and positive fired-count.
@@ -31,7 +39,9 @@ The level must contain the same pickup/enemy identities and the saved event IDs
 must still exist. Missing, duplicate, or changed required identities reject the
 load without modifying the running game. Cross-version content migration after
 deleting or replacing those identities is not yet supported. The level ID and
-dimensions must also match. Title-level selection must match the save's level.
+dimensions must also match. Save v6 exposes the active level ID first, allowing
+the game to open the correct registered authored level before restoring it; the
+title-screen level selection no longer needs to match.
 
 Versions 3–4 have no entity IDs; their records necessarily use authored list
 order. Keep old content order when loading those saves. Pre-versioned/version 2
@@ -72,7 +82,7 @@ adapter actions report a message rather than pretending to run.
 
 ## Regression evidence
 
-Release-active suites cover level versions 1–6, save layouts pre-versioned/2–5,
+Release-active suites cover level versions 1–8, save layouts pre-versioned/2–6,
 stable-ID reorder restoration, death, reserve swaps, non-healing duplicate
 recruitment, cap enforcement, door key consumption, one-shot restoration,
 duplicate/derived-ID collisions, malformed old maps, callback exceptions,

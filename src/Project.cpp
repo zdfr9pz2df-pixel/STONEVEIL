@@ -1,5 +1,6 @@
 #include "Project.hpp"
 #include "AtomicFile.hpp"
+#include "Dungeon.hpp"
 #include "LevelDocument.hpp"
 #include "LevelIO.hpp"
 #include "Material.hpp"
@@ -9,6 +10,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <map>
+#include <queue>
 #include <set>
 #include <sstream>
 
@@ -192,6 +195,7 @@ std::vector<ProjectIssue> ProjectDocument::validate() const {
     }
     for (const auto& error : CampaignIO::validate(campaign_)) issues.push_back({IssueSeverity::Error, error});
     std::set<std::string> paths;
+    std::map<std::string, LevelDefinition> loadedLevels;
     for (const auto& entry : campaign_.levels) {
         if (!paths.insert(entry.path).second) issues.push_back({IssueSeverity::Error, "Two registry entries point to the same level file."});
         LevelDefinition level;
@@ -202,6 +206,7 @@ std::vector<ProjectIssue> ProjectDocument::validate() const {
             continue;
         }
         if (level.id != entry.id) issues.push_back({IssueSeverity::Error, entry.name + ": registry ID does not match the level. Save/register it again."});
+        else loadedLevels.emplace(entry.id, level);
         for (const auto& object : level.objects) if (object.kind == WorldObjectKind::Recruit) {
             const auto character = std::find_if(characters_.begin(), characters_.end(),
                 [&](const auto& definition) { return definition.id == object.characterId; });
@@ -232,6 +237,55 @@ std::vector<ProjectIssue> ProjectDocument::validate() const {
             std::error_code ec;
             if (!resolveInside(root_, level.musicPath, music)) issues.push_back({IssueSeverity::Error, entry.name + ": music path escapes the project."});
             else if (!fs::is_regular_file(music, ec)) issues.push_back({IssueSeverity::Warning, entry.name + ": music is missing; this level will be silent."});
+        }
+    }
+
+    // Cross-level validation must happen after every registered level has been
+    // loaded. A transition stores stable project IDs, never a filesystem path.
+    std::map<std::string, std::set<std::string>> routes;
+    for (const auto& [sourceId, level] : loadedLevels) {
+        for (const auto& object : level.objects) {
+            if (object.kind != WorldObjectKind::LevelTransition) continue;
+            const auto target = loadedLevels.find(object.destinationLevelId);
+            if (target == loadedLevels.end()) {
+                issues.push_back({IssueSeverity::Error, level.name + ": transition " + object.id +
+                                  " points to an unregistered or unreadable level."});
+                continue;
+            }
+            const auto arrival = std::find_if(target->second.objects.begin(), target->second.objects.end(),
+                [&](const auto& candidate) {
+                    return candidate.kind == WorldObjectKind::ArrivalPoint &&
+                           candidate.id == object.destinationArrivalId;
+                });
+            if (arrival == target->second.objects.end()) {
+                issues.push_back({IssueSeverity::Error, level.name + ": transition " + object.id +
+                                  " points to a missing arrival point."});
+                continue;
+            }
+            const Dungeon destination{target->second};
+            const bool enemyBlocks = std::any_of(destination.enemies().begin(), destination.enemies().end(),
+                [&](const auto& enemy) { return enemy.alive && enemy.x == arrival->x && enemy.y == arrival->y; });
+            if (destination.blocksMovement(arrival->x, arrival->y) || enemyBlocks) {
+                issues.push_back({IssueSeverity::Error, target->second.name + ": arrival " + arrival->id +
+                                  " is blocked and cannot receive the party."});
+                continue;
+            }
+            routes[sourceId].insert(object.destinationLevelId);
+        }
+    }
+    if (loadedLevels.count(campaign_.startingLevelId)) {
+        std::set<std::string> reachable{campaign_.startingLevelId};
+        std::queue<std::string> pending;
+        pending.push(campaign_.startingLevelId);
+        while (!pending.empty()) {
+            const auto source = pending.front(); pending.pop();
+            for (const auto& target : routes[source]) if (reachable.insert(target).second) pending.push(target);
+        }
+        for (const auto& [id, level] : loadedLevels) {
+            if (!reachable.count(id))
+                issues.push_back({IssueSeverity::Warning, level.name + ": level is unreachable from the campaign start."});
+            else if (routes[id].empty())
+                issues.push_back({IssueSeverity::Warning, level.name + ": progression dead end (no valid level transition)."});
         }
     }
     return issues;

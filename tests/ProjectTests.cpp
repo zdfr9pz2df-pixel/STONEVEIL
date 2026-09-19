@@ -80,6 +80,36 @@ int main(int argc, char** argv) {
         warning = warning || issue.severity == IssueSeverity::Warning;
     }
     CHECK(warning);
+
+    // Cross-level campaign validation resolves stable level and arrival IDs.
+    level.beginEdit();
+    WorldObject passage{"transition.test", WorldObjectKind::LevelTransition, 4, 4,
+                        "Test passage", "Travel onward.", false};
+    passage.destinationLevelId = "missing.level";
+    passage.destinationArrivalId = "arrival.start";
+    level.draft().objects.push_back(passage);
+    CHECK(level.save(error));
+    bool missingDestination = false;
+    for (const auto& issue : project.validate())
+        missingDestination |= issue.severity == IssueSeverity::Error &&
+            issue.message.find("unregistered") != std::string::npos;
+    CHECK(missingDestination);
+    level.beginEdit();
+    level.draft().objects.back().destinationLevelId = "level.start";
+    CHECK(level.save(error));
+    bool missingArrival = false;
+    for (const auto& issue : project.validate())
+        missingArrival |= issue.severity == IssueSeverity::Error &&
+            issue.message.find("missing arrival") != std::string::npos;
+    CHECK(missingArrival);
+    LevelDocument startLevel;
+    CHECK(startLevel.open(project.levelPath("level.start"), error));
+    startLevel.beginEdit();
+    startLevel.draft().objects.push_back({"arrival.start", WorldObjectKind::ArrivalPoint,
+        startLevel.draft().spawnX, startLevel.draft().spawnY, "Start arrival", "", false});
+    CHECK(startLevel.save(error));
+    for (const auto& issue : project.validate()) CHECK(issue.severity != IssueSeverity::Error);
+
     const auto atomic = (root / "atomic.txt").string();
     CHECK(writeFileAtomically(atomic, "original", error));
     CHECK(!writeFileAtomically(atomic, "replacement", error, false));
