@@ -62,6 +62,36 @@ blocking/name/text. Other kinds have no authored facing field yet. Text editing
 uses the existing Enter/Escape-to-finish behavior; Ctrl+Z undoes the edit after
 finishing. Inspector mutations participate in document Undo/Redo.
 
+## Character Creator
+
+Open **Project → Characters**. Definitions are project data, separate from
+mutable player-save records. Identity contains the player-visible name and
+summary. Role contains broad role, traits, health, power, and the currently
+supported basic ability choice. Recruitment controls 1–3 starting candidates,
+reserve recruitability, and recruitment text. Advanced contains equipment
+compatibility/starting-equipment IDs and the future portrait path contract.
+
+Add generates a new non-starter character with a stable numeric ID and reference
+key. Delete always retains at least one definition and one starting candidate.
+Save validates the whole catalog before atomically replacing
+`content/characters/characters.svc`; Revert reloads the last saved catalog.
+Text entry ends with Enter or Escape. Catalog changes are used by the next
+playtest/new game and are included in Windows export.
+
+Current limits are deliberate and visible: melee is the only attack definition,
+the basic heal/none toggle is the only ability choice, equipment strings are
+authored metadata only, and portrait upload is not wired yet. The character list
+scrolls when a project grows beyond nine definitions.
+
+On the Object layer, **Recruit** places a non-starter recruitable character and
+stores its stable character ID in the level. Right-click its map marker to cycle
+the intended recruit. **Party Management** places a generic interaction point.
+Recruitment adds the character to Reserve exactly once; it never heals or
+duplicates an existing record. Interacting with a management point opens the
+active/reserve screen, where up to three living characters can be active and a
+larger roster remains available through a scrolling list. Health, XP, permanent
+death, reserve state and the active party survive normal save/load.
+
 ProjectTests covers two-level registration, start selection, identity preservation,
 duplicate rejection, path traversal, missing-audio warnings, no-overwrite export,
 and atomic replacement failures. Passing an executable path to that test retains

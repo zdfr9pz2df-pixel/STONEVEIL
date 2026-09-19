@@ -32,14 +32,13 @@ queue in order, and editor-only room mood/purpose are not emitted as dialogue.
 `LevelDocument` owns editor draft/path/history: New and blueprint imports are
 untitled, Save As creates a new identity, and undo/redo restores document identity
 and saved-state. Window close uses the unsaved-work confirmation. Windows
-integration CI for the preceding slice is green; the current local suite has seven
+integration CI for the preceding published slice is green; the current local suite has nine
 CTest cases. The project/export slice adds ProjectDocument, native file dialogs,
 a Project panel, level registry/start selection, and player-only Windows export.
 See PROJECT_WORKFLOW.md for use and limitations. The bundled project opens
 automatically. Explicit project roots isolate textures, music and saves; Release
 uses the static Microsoft runtime. AtomicFile now protects individual level,
-campaign, manifest and save writes. Project-wide transactions and character
-authoring remain unfinished.
+campaign, manifest and save writes. Project-wide transactions remain unfinished.
 
 The object-inspector slice adds raylib-free LevelEditing and a right-click
 inspector for spawn, world objects, enemies, pickups, doors/gates and lights.
@@ -50,7 +49,22 @@ events, including through the older Object Erase and door-repainting paths.
 Undo/redo restores complete draft transactions. Inspect also exposes spawn
 facing, door lock, pickup type, enemy archetype/health reset, light type, object
 movement blocking, and existing object name/text editing. Other object-facing
-fields do not yet exist; no dummy facing values were added. Seven CTest cases.
+fields do not yet exist; no dummy facing values were added.
+
+Room/trigger transforms and the first project Character Creator are now local.
+Rooms can be selected, moved and resized; subject-bound EnterRoom events follow
+and remain inside the region. Cell events can move independently, while events
+bound to a stable object refuse independent movement. Project > Characters uses
+progressive Identity, Role, Recruitment and Advanced tabs. It persists versioned
+`content/characters/characters.svc` definitions with stable numeric IDs,
+reference keys, stats, traits, starter/recruitability flags, recruitment text,
+basic attack/ability choices, equipment tags and portrait path. Project catalogs
+drive New Game, roster, combat, HUD, save validation and export. Recruit and
+Party Management Point object brushes compile into the shared event runtime;
+recruits enter Reserve once, management supports active/reserve swaps with a
+three-character active cap, and save/load preserves the full roster. Gate 3 is
+still incomplete because Downed, equipment runtime, portrait import and richer
+ability catalogs remain.
 
 STONEVEIL v0.4 is a playable Windows C++17/raylib dungeon-crawler slice with an integrated, story-first dungeon editor.
 
@@ -70,13 +84,13 @@ The current tree includes:
   with grid line-of-sight so a torch does not shine through solid stone
 - a second-pass lighting model with darker ambient, warm torch contribution, softer falloff, directional
   wall-face shading, distance/corner dimming, and per-surface floor/ceiling light sampling
-- level format version 6, which adds stable authored object IDs, doors/locks/gates, props, shrines,
-  notes, corpses, NPCs, named story rooms, and event triggers while still loading older level files
+- level format version 7, which retains stable authored objects and adds stable character references
+  for recruit interactions while still loading versions 1–6
 - queryable authored water cells with depth, flow direction, and volume IDs, ready for later movement,
   audio, light-extinguishing, rendering, and AI rules
 - a title-menu dungeon editor for structure, wall, floor, ceiling, object, story, event, light, and audio layers
 - Object brushes for enemies, pickups, locked/unlocked doors, gates, props, shrines, notes, corpses,
-  and NPCs; text-bearing objects can be named and written directly in the editor
+  NPCs, recruits, and party-management points; text-bearing objects can be named and written directly
 - Story-room rectangle authoring with room name, purpose, mood, lore note, and intended feeling
 - Event triggers for entering a cell/room, opening a door, killing an enemy, collecting an item, and
   interacting with an object; playtests display authored discovery text through the real game HUD
@@ -172,10 +186,10 @@ path before falling back to swatches.
 
 - A new game still presents exactly the three starters and allows selecting 1–3.
 - Maximum active capacity is 3. The 2026-09-18 Creator Alpha brief supersedes the older six-slot rule.
-- Recruitment should add a character to the reserve roster first. Joining the active party remains a separate decision subject to current capacity.
+- Recruitment adds a character to the reserve roster first. Joining the active party is a separate decision at a Party Management Point.
 - Capacity is persisted in save version 5; legacy version 4 capacities of 4–6 clamp to 3 on load.
 - Death remains permanent unless the user explicitly changes that pillar.
-- The next party-facing feature should be a camp/roster management screen, not hard-coded automatic insertion into the HUD.
+- The management screen scrolls through an uncapped authored roster while the HUD remains limited to the active 1–3.
 
 ## Recommended next engineering milestone
 
@@ -196,7 +210,7 @@ Continue the editor incrementally:
 7. Replace generated placeholder audio cues with authored `.wav`/`.ogg` assets behind the existing
    `AudioCue` IDs, then add event-triggered music swaps for combat, sanctuary, boss, and victory
    states using the level-music path as the default exploration loop.
-8. Add recruitment triggers and a party-management screen using stable character IDs and saved capacity.
+8. ~~Add recruitment triggers and a party-management screen using stable character IDs and saved capacity.~~ **Done.**
 9. Extract remaining screen/UI presentation from `Game.cpp` as those screens grow.
 
 The Object/Story/Event milestone follows the same authored-data path first exercised by lights. Two
@@ -210,7 +224,7 @@ Keep the current 4–64 dimension safety range until larger-map performance and 
 
 ## Non-regression requirements
 
-- Keep the Release build and all seven CTest cases green.
+- Keep the Release build and all nine CTest cases green.
 - Preserve movement, collision, doors, combat, save/load compatibility, and the centered-eye raycaster.
 - Keep loading older level files; saving always upgrades them to the current version.
 - Keep the single executable and shared `content` folder in the downloadable Windows playtest.

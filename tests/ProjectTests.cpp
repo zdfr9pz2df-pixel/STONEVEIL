@@ -26,6 +26,12 @@ int main(int argc, char** argv) {
     const auto manifest = (root / "source/story.stoneveil").string();
     CHECK(project.create(manifest, STONEVEIL_SOURCE_DIR, error));
     CHECK(project.isOpen() && project.campaign().levels.size() == 1);
+    auto characters = project.characters();
+    auto recruit = characters.front();
+    recruit.id = 9001; recruit.stableKey = "test.recruit"; recruit.name = "Test Recruit";
+    recruit.starter = false; recruit.recruitmentText = "Join us.";
+    characters.push_back(recruit);
+    CHECK(project.saveCharacters(characters, error));
     CHECK(!project.create(manifest, STONEVEIL_SOURCE_DIR, error));
     CHECK(fs::equivalent(project.path(), manifest));
     CHECK(!ProjectDocument::resolveInside(project.root(), "../outside", resolved));
@@ -42,14 +48,32 @@ int main(int argc, char** argv) {
     ProjectDocument reopened;
     CHECK(reopened.open(manifest, error));
     CHECK(reopened.campaign().startingLevelId == level.draft().id);
+    CHECK(reopened.characters().size() == 4 && reopened.characters().back().id == 9001);
     CHECK(!reopened.open((root / "missing.stoneveil").string(), error));
     CHECK(fs::equivalent(reopened.path(), manifest));
     CHECK(LevelIO::save((root / "source/content/levels/duplicate.svl").string(), level.draft(), error));
     CHECK(!project.registerLevel((root / "source/content/levels/duplicate.svl").string(), error));
     CHECK(project.campaign().levels.size() == 2);
     level.beginEdit();
+    level.draft().objects.push_back({"recruit.test", WorldObjectKind::Recruit, 3, 3,
+                                     "Test Recruit", "Join us.", true, 9001});
+    CHECK(level.save(error));
+    for (const auto& issue : project.validate()) CHECK(issue.severity != IssueSeverity::Error);
+    level.beginEdit();
+    level.draft().objects.back().characterId = 777777;
+    CHECK(level.save(error));
+    bool missingRecruitError = false;
+    for (const auto& issue : project.validate())
+        missingRecruitError = missingRecruitError || (issue.severity == IssueSeverity::Error &&
+            issue.message.find("missing character") != std::string::npos);
+    CHECK(missingRecruitError);
+    level.beginEdit();
+    level.draft().objects.back().characterId = 9001;
     level.draft().musicPath = "content/audio/music/missing.ogg";
     CHECK(level.save(error));
+    CHECK(!project.saveCharacters(characterDefinitions(), error));
+    CHECK(error.find("recruit point") != std::string::npos);
+    CHECK(project.characters().size() == 4);
     bool warning = false;
     for (const auto& issue : project.validate()) {
         CHECK(issue.severity != IssueSeverity::Error);
@@ -73,6 +97,7 @@ int main(int argc, char** argv) {
     ProjectDocument exported;
     CHECK(exported.open((root / "export/game.stoneveil").string(), error));
     CHECK(exported.campaign().startingLevelId == level.draft().id);
+    CHECK(exported.characters().size() == 4 && exported.characters().back().recruitmentText == "Join us.");
     CHECK(!project.exportWindowsGame(executable, (root / "export").string(), error));
     CHECK(bytes(root / "export/stoneveil.exe") == bytes(executable));
     if (argc > 1) { std::cout << "Retained smoke project: " << root.string() << '\n'; return 0; }

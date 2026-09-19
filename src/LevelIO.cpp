@@ -19,7 +19,7 @@
 
 namespace sv {
 namespace {
-constexpr int LevelFormatVersion = 6;
+constexpr int LevelFormatVersion = 7;
 constexpr int MinimumLevelFormatVersion = 1;
 constexpr std::size_t MaxLevelObjects = 1024;
 
@@ -301,6 +301,7 @@ bool LevelIO::load(const std::string& path, LevelDefinition& level, std::string&
             int blocks{};
             input >> std::quoted(object.id) >> kind >> object.x >> object.y >> blocks >>
                 std::quoted(object.name) >> std::quoted(object.text);
+            if (input && version >= 7) input >> object.characterId;
             if (!input || !parseWorldObjectKind(kind, object.kind) || (blocks != 0 && blocks != 1)) {
                 error = "Invalid world object entry.";
                 return false;
@@ -432,7 +433,7 @@ bool LevelIO::save(const std::string& path, const LevelDefinition& level, std::s
     for (const auto& object : level.objects) {
         output << std::quoted(object.id) << ' ' << worldObjectKindName(object.kind) << ' ' << object.x << ' '
                << object.y << ' ' << (object.blocksMovement ? 1 : 0) << ' ' << std::quoted(object.name) << ' '
-               << std::quoted(object.text) << '\n';
+               << std::quoted(object.text) << ' ' << object.characterId << '\n';
     }
     output << "ROOMS " << level.rooms.size() << '\n';
     for (const auto& room : level.rooms) {
@@ -631,6 +632,10 @@ std::vector<std::string> LevelIO::validate(const LevelDefinition& level) {
         validateId(object.id, "World object");
         if (!coordinateIsWalkable(level, object.x, object.y)) errors.push_back("A world object is outside the walkable map.");
         if (object.name.empty()) errors.push_back("World objects need a display name.");
+        if (object.kind == WorldObjectKind::Recruit && object.characterId == InvalidCharacterId)
+            errors.push_back("Recruit objects need a character reference.");
+        if (object.kind != WorldObjectKind::Recruit && object.characterId != InvalidCharacterId)
+            errors.push_back("Only recruit objects may reference a character.");
         if (!objectCells.insert({object.x, object.y}).second) errors.push_back("A cell holds more than one world object.");
         if (!occupiedGameplayCells.insert({object.x, object.y}).second) errors.push_back("A gameplay cell holds overlapping objects.");
     }

@@ -72,6 +72,11 @@ bool ProjectDocument::open(const std::string& projectFile, std::string& error) {
     if (id != loaded.campaign_.id || name != loaded.campaign_.name) {
         error = "Project identity does not match its campaign registry."; return false;
     }
+    std::string characters;
+    if (!resolveInside(loaded.root_, "content/characters/characters.svc", characters)) {
+        error = "Character catalog path escapes this project."; return false;
+    }
+    if (fs::exists(characters, ec) && !CharacterCatalogIO::load(characters, loaded.characters_, error)) return false;
     for (const auto& issue : loaded.validate()) {
         if (issue.severity == IssueSeverity::Error) { error = issue.message; return false; }
     }
@@ -114,7 +119,7 @@ bool ProjectDocument::create(const std::string& projectFile, const std::string& 
         }
         if (ec) { error = ec.message(); return false; }
     }
-    if (!created.save(error)) return false;
+    if (!created.saveCharacters(created.characters_, error) || !created.save(error)) return false;
     *this = std::move(created);
     return true;
 }
@@ -176,6 +181,15 @@ bool ProjectDocument::setStartingLevel(const std::string& id, std::string& error
 
 std::vector<ProjectIssue> ProjectDocument::validate() const {
     std::vector<ProjectIssue> issues;
+    for (const auto& error : CharacterCatalogIO::validate(characters_)) issues.push_back({IssueSeverity::Error, error});
+    for (const auto& character : characters_) if (!character.portraitPath.empty()) {
+        std::string portrait;
+        std::error_code ec;
+        if (!resolveInside(root_, character.portraitPath, portrait))
+            issues.push_back({IssueSeverity::Error, character.name + ": portrait path escapes the project."});
+        else if (!fs::is_regular_file(portrait, ec))
+            issues.push_back({IssueSeverity::Warning, character.name + ": portrait is missing; the fallback portrait will be used."});
+    }
     for (const auto& error : CampaignIO::validate(campaign_)) issues.push_back({IssueSeverity::Error, error});
     std::set<std::string> paths;
     for (const auto& entry : campaign_.levels) {
@@ -188,6 +202,14 @@ std::vector<ProjectIssue> ProjectDocument::validate() const {
             continue;
         }
         if (level.id != entry.id) issues.push_back({IssueSeverity::Error, entry.name + ": registry ID does not match the level. Save/register it again."});
+        for (const auto& object : level.objects) if (object.kind == WorldObjectKind::Recruit) {
+            const auto character = std::find_if(characters_.begin(), characters_.end(),
+                [&](const auto& definition) { return definition.id == object.characterId; });
+            if (character == characters_.end())
+                issues.push_back({IssueSeverity::Error, entry.name + ": a recruit references a missing character."});
+            else if (!character->recruitable)
+                issues.push_back({IssueSeverity::Warning, entry.name + ": " + character->name + " is placed as a recruit but marked non-recruitable."});
+        }
         std::set<std::string> textures;
         const auto inspectMaterial = [&](const std::string& id) {
             const auto* material = findMaterial(id);
@@ -223,6 +245,7 @@ bool ProjectDocument::exportWindowsGame(const std::string& executable, const std
         error = "Export into an existing empty folder. No existing game files will be overwritten."; return false;
     }
     std::set<std::string> assets;
+    for (const auto& character : characters_) if (!character.portraitPath.empty()) assets.insert(character.portraitPath);
     const auto addMaterial = [&](const std::string& id) {
         const auto* material = findMaterial(id);
         if (material && !material->texturePath.empty()) assets.insert(material->texturePath);
@@ -246,9 +269,42 @@ bool ProjectDocument::exportWindowsGame(const std::string& executable, const std
         if (fs::is_regular_file(source, ec) && !copyFile(source, target / asset, error)) return false;
     }
     std::string registry;
+    fs::create_directories(target / "content/characters", ec);
+    if (ec || !CharacterCatalogIO::save((target / "content/characters/characters.svc").string(), characters_, error)) return false;
     if (!resolveInside(root_, campaignPath_, registry) || !copyFile(registry, target / campaignPath_, error) ||
         !copyFile(path_, target / "game.stoneveil", error) || !copyFile(executable, target / "stoneveil.exe", error)) return false;
     // Written last: an interrupted export never advertises itself as playable.
     return writeFileAtomically((target / "stoneveil.game").string(), "game.stoneveil\n", error, false);
+}
+bool ProjectDocument::saveCharacters(const std::vector<CharacterDefinition>& definitions, std::string& error) {
+    if (!isOpen()) { error = "Open a project before editing characters."; return false; }
+    const auto catalogErrors = CharacterCatalogIO::validate(definitions);
+    if (!catalogErrors.empty()) { error = catalogErrors.front(); return false; }
+    for (const auto& entry : campaign_.levels) {
+        LevelDefinition level;
+        if (!LevelIO::load(levelPath(entry.id), level, error)) {
+            error = entry.name + ": " + error;
+            return false;
+        }
+        for (const auto& object : level.objects) {
+            if (object.kind != WorldObjectKind::Recruit) continue;
+            const bool found = std::any_of(definitions.begin(), definitions.end(), [&](const auto& character) {
+                return character.id == object.characterId;
+            });
+            if (!found) {
+                error = entry.name + " still contains a recruit point for character ID " +
+                    std::to_string(object.characterId) + ". Retarget or remove that point first.";
+                return false;
+            }
+        }
+    }
+    std::string file;
+    if (!resolveInside(root_, "content/characters/characters.svc", file)) { error = "Unsafe character catalog path."; return false; }
+    std::error_code ec;
+    fs::create_directories(fs::path{file}.parent_path(), ec);
+    if (ec) { error = ec.message(); return false; }
+    if (!CharacterCatalogIO::save(file, definitions, error)) return false;
+    characters_ = definitions;
+    return true;
 }
 }

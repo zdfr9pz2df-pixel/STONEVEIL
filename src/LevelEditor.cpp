@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cctype>
 #include <filesystem>
+#include <limits>
 #include <random>
 #include <set>
 #include <string>
@@ -82,7 +83,7 @@ Rectangle newButton() { return {796.0f, 20.0f, 62.0f, 28.0f}; }
 Rectangle saveAsButton() { return {864.0f, 20.0f, 82.0f, 28.0f}; }
 Rectangle projectButton() { return {960.0f, 20.0f, 130.0f, 28.0f}; }
 Rectangle projectActionButton(int index) { return {270.0f + (index % 3) * 250.0f, 174.0f + (index / 3) * 42.0f, 238.0f, 34.0f}; }
-Rectangle projectLevelButton(int row) { return {270.0f, 300.0f + row * 35.0f, 738.0f, 30.0f}; }
+Rectangle projectLevelButton(int row) { return {270.0f, 340.0f + row * 35.0f, 738.0f, 30.0f}; }
 
 Rectangle objectBrushButton(int index) {
     const int column = index % 2;
@@ -360,6 +361,8 @@ const char* objectKindLabel(WorldObjectKind kind) {
         case WorldObjectKind::Note: return "Note";
         case WorldObjectKind::Corpse: return "Corpse";
         case WorldObjectKind::Npc: return "NPC";
+        case WorldObjectKind::Recruit: return "Recruit";
+        case WorldObjectKind::PartyManagement: return "Party Management Point";
     }
     return "Object";
 }
@@ -371,6 +374,8 @@ const char* objectMapLabel(WorldObjectKind kind) {
         case WorldObjectKind::Note: return "N";
         case WorldObjectKind::Corpse: return "C";
         case WorldObjectKind::Npc: return "@";
+        case WorldObjectKind::Recruit: return "+";
+        case WorldObjectKind::PartyManagement: return "M";
     }
     return "?";
 }
@@ -533,6 +538,11 @@ void LevelEditor::showStoryLayerForCapture() {
     if (!level_.rooms.empty()) selectedRoomIndex_ = 0;
 }
 
+void LevelEditor::showObjectsLayerForCapture() {
+    setLayer(Layer::Objects);
+    if (!level_.objects.empty()) selectedObjectIndex_ = 0;
+}
+
 void LevelEditor::loadLevel(const std::string& path) {
     std::string error;
     const auto source = path.empty() ? document_.path() : path;
@@ -607,11 +617,13 @@ void LevelEditor::updateProjectPanel() {
     if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) return;
     const auto mouse = GetMousePosition();
     if (CheckCollisionPointRec(mouse, {1015, 115, 35, 32})) { projectPanelOpen_ = false; return; }
-    for (int i = 0; i < 6; ++i) if (CheckCollisionPointRec(mouse, projectActionButton(i))) {
+    for (int i = 0; i < 7; ++i) if (CheckCollisionPointRec(mouse, projectActionButton(i))) {
         if (i == 0) requestDestructiveAction(PendingAction::NewProject);
         else if (i == 1) requestDestructiveAction(PendingAction::OpenProject);
         else if (i == 3) requestDestructiveAction(PendingAction::OpenLevel);
-        else {
+        else if (i == 6) {
+            openCharacterCreator();
+        } else {
             std::string error;
             if (i == 2) {
                 saveLevel();
@@ -630,7 +642,7 @@ void LevelEditor::updateProjectPanel() {
         }
         return;
     }
-    for (int row = 0; row < 7 && projectScroll_ + row < count; ++row) {
+    for (int row = 0; row < 6 && projectScroll_ + row < count; ++row) {
         if (CheckCollisionPointRec(mouse, projectLevelButton(row))) {
             requestedProjectLevel_ = projectScroll_ + row;
             requestDestructiveAction(PendingAction::OpenRegistered);
@@ -645,18 +657,202 @@ void LevelEditor::drawProjectPanel() const {
     DrawRectangleLines(245, 100, 820, 550, Accent);
     DrawText(project_.isOpen() ? project_.campaign().name.c_str() : "PROJECT WORKSPACE", 270, 125, 24, Text);
     drawButton({1015, 115, 35, 32}, "X", false, 18);
-    const char* labels[] = {"NEW PROJECT", "OPEN PROJECT", "SAVE PROJECT", "OPEN LEVEL", "SET START LEVEL", "EXPORT WINDOWS GAME"};
-    for (int i = 0; i < 6; ++i) drawButton(projectActionButton(i), labels[i], false, 16);
-    DrawText("REGISTERED LEVELS  -  click to open; scroll for more", 270, 270, 16, Muted);
+    const char* labels[] = {"NEW PROJECT", "OPEN PROJECT", "SAVE PROJECT", "OPEN LEVEL", "SET START LEVEL", "EXPORT WINDOWS GAME", "CHARACTERS"};
+    for (int i = 0; i < 7; ++i) drawButton(projectActionButton(i), labels[i], false, 16);
+    DrawText("REGISTERED LEVELS  -  click to open; scroll for more", 270, 310, 16, Muted);
     const auto& levels = project_.campaign().levels;
-    for (int row = 0; row < 7 && projectScroll_ + row < static_cast<int>(levels.size()); ++row) {
+    for (int row = 0; row < 6 && projectScroll_ + row < static_cast<int>(levels.size()); ++row) {
         const auto& entry = levels[static_cast<std::size_t>(projectScroll_ + row)];
         const auto label = (entry.id == project_.campaign().startingLevelId ? "[START] " : "") + entry.name;
         drawButton(projectLevelButton(row), shortened(label, 62).c_str(), entry.id == level_.id, 15);
     }
-    DrawText("New Project: choose a .stoneveil file inside a new empty folder.", 270, 568, 15, Muted);
-    DrawText("Save/Save As automatically registers levels saved inside this project.", 270, 591, 15, Muted);
+    DrawText("New Project: choose a .stoneveil file inside a new empty folder.", 270, 580, 15, Muted);
+    DrawText("Save/Save As registers levels; Characters opens the project roster.", 270, 603, 15, Muted);
     DrawText(shortened(status_, 90).c_str(), 270, 619, 13, Accent);
+}
+
+void LevelEditor::openCharacterCreator() {
+    if (!project_.isOpen()) { status_ = "Open or create a project before editing characters."; return; }
+    characterDraft_ = project_.characters();
+    selectedCharacter_ = std::clamp(selectedCharacter_, 0, std::max(0, static_cast<int>(characterDraft_.size()) - 1));
+    characterScroll_ = std::clamp(selectedCharacter_ - 4, 0, std::max(0, static_cast<int>(characterDraft_.size()) - 9));
+    characterCatalogDirty_ = false;
+    characterField_ = CharacterField::None;
+    characterCreatorOpen_ = true;
+}
+
+std::string* LevelEditor::activeCharacterText() {
+    if (selectedCharacter_ < 0 || selectedCharacter_ >= static_cast<int>(characterDraft_.size())) return nullptr;
+    auto& character = characterDraft_[static_cast<std::size_t>(selectedCharacter_)];
+    switch (characterField_) {
+    case CharacterField::Name: return &character.name;
+    case CharacterField::Role: return &character.role;
+    case CharacterField::Summary: return &character.summary;
+    case CharacterField::Traits: return &character.traits;
+    case CharacterField::EquipmentTags: return &character.equipmentTags;
+    case CharacterField::StartingEquipment: return &character.startingEquipment;
+    case CharacterField::RecruitmentText: return &character.recruitmentText;
+    default: return nullptr;
+    }
+}
+
+void LevelEditor::saveCharacterCatalog() {
+    std::string error;
+    if (!project_.saveCharacters(characterDraft_, error)) { status_ = "Characters not saved: " + error; return; }
+    characterCatalogDirty_ = false;
+    characterField_ = CharacterField::None;
+    status_ = "Character catalog saved. New games now use these definitions.";
+}
+
+void LevelEditor::updateCharacterCreator() {
+    if (characterField_ != CharacterField::None) {
+        auto* value = activeCharacterText();
+        if (!value) { characterField_ = CharacterField::None; return; }
+        if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_ESCAPE)) { characterField_ = CharacterField::None; return; }
+        if (IsKeyPressed(KEY_BACKSPACE) && !value->empty()) { value->pop_back(); characterCatalogDirty_ = true; }
+        for (int codepoint = GetCharPressed(); codepoint > 0; codepoint = GetCharPressed())
+            if (codepoint >= 32 && codepoint <= 126 && value->size() < 1000) {
+                value->push_back(static_cast<char>(codepoint)); characterCatalogDirty_ = true;
+            }
+        return;
+    }
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        if (characterCatalogDirty_) status_ = "Save or Revert character changes before closing.";
+        else characterCreatorOpen_ = false;
+        return;
+    }
+    characterScroll_ = std::clamp(characterScroll_ - static_cast<int>(GetMouseWheelMove()),
+                                  0, std::max(0, static_cast<int>(characterDraft_.size()) - 9));
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) return;
+    const auto mouse = GetMousePosition();
+    if (CheckCollisionPointRec(mouse, {1120, 112, 100, 32})) {
+        if (characterCatalogDirty_) status_ = "Save or Revert character changes before closing.";
+        else characterCreatorOpen_ = false;
+        return;
+    }
+    if (CheckCollisionPointRec(mouse, {900, 620, 145, 34})) { saveCharacterCatalog(); return; }
+    if (CheckCollisionPointRec(mouse, {1060, 620, 145, 34})) { openCharacterCreator(); status_ = "Character changes reverted."; return; }
+    for (int row = 0; row < 9 && characterScroll_ + row < static_cast<int>(characterDraft_.size()); ++row)
+        if (CheckCollisionPointRec(mouse, {270, 178.0f + row * 42.0f, 250, 34})) {
+            selectedCharacter_ = characterScroll_ + row; characterField_ = CharacterField::None; return;
+        }
+    if (CheckCollisionPointRec(mouse, {270, 575, 120, 34})) {
+        CharacterId id = 1000;
+        for (const auto& character : characterDraft_) id = std::max(id, character.id);
+        if (id >= static_cast<CharacterId>(std::numeric_limits<int>::max())) {
+            status_ = "No stable character IDs remain in the supported range.";
+            return;
+        }
+        ++id;
+        characterDraft_.push_back({id, "character." + std::to_string(id), "New Character", "Adventurer",
+            "A new recruit.", 30, 6, false});
+        selectedCharacter_ = static_cast<int>(characterDraft_.size()) - 1;
+        characterScroll_ = std::max(0, static_cast<int>(characterDraft_.size()) - 9);
+        characterCatalogDirty_ = true; return;
+    }
+    if (CheckCollisionPointRec(mouse, {400, 575, 120, 34}) && characterDraft_.size() > 1) {
+        const auto deletingStarter = characterDraft_[static_cast<std::size_t>(selectedCharacter_)].starter;
+        const auto starters = std::count_if(characterDraft_.begin(), characterDraft_.end(), [](const auto& c) { return c.starter; });
+        if (deletingStarter && starters <= 1) { status_ = "At least one starting character is required."; return; }
+        characterDraft_.erase(characterDraft_.begin() + selectedCharacter_);
+        selectedCharacter_ = std::min(selectedCharacter_, static_cast<int>(characterDraft_.size()) - 1);
+        characterScroll_ = std::min(characterScroll_, std::max(0, static_cast<int>(characterDraft_.size()) - 9));
+        characterCatalogDirty_ = true; return;
+    }
+    for (int i = 0; i < 4; ++i)
+        if (CheckCollisionPointRec(mouse, {550.0f + i * 165.0f, 160, 155, 34})) {
+            characterTab_ = static_cast<CharacterTab>(i); characterField_ = CharacterField::None; return;
+        }
+    if (characterDraft_.empty()) return;
+    auto& character = characterDraft_[static_cast<std::size_t>(selectedCharacter_)];
+    const auto textField = [&](int row, CharacterField field) {
+        if (CheckCollisionPointRec(mouse, {550, 225.0f + row * 58.0f, 655, 42})) {
+            characterField_ = field; return true;
+        }
+        return false;
+    };
+    if (characterTab_ == CharacterTab::Identity) {
+        if (textField(0, CharacterField::Name) || textField(1, CharacterField::Summary)) return;
+    } else if (characterTab_ == CharacterTab::Role) {
+        if (textField(0, CharacterField::Role) || textField(1, CharacterField::Traits)) return;
+        if (CheckCollisionPointRec(mouse, {550, 360, 150, 34})) { character.maxHp = std::max(1, character.maxHp - 1); characterCatalogDirty_ = true; }
+        if (CheckCollisionPointRec(mouse, {710, 360, 150, 34})) { character.maxHp = std::min(9999, character.maxHp + 1); characterCatalogDirty_ = true; }
+        if (CheckCollisionPointRec(mouse, {870, 360, 150, 34})) { character.power = std::max(1, character.power - 1); characterCatalogDirty_ = true; }
+        if (CheckCollisionPointRec(mouse, {1030, 360, 175, 34})) { character.power = std::min(999, character.power + 1); characterCatalogDirty_ = true; }
+        if (CheckCollisionPointRec(mouse, {550, 418, 655, 34})) {
+            character.abilityId = character.abilityId.empty() ? "ability.heal" : ""; characterCatalogDirty_ = true;
+        }
+    } else if (characterTab_ == CharacterTab::Recruitment) {
+        if (CheckCollisionPointRec(mouse, {550, 225, 315, 42})) {
+            const int starters = static_cast<int>(std::count_if(characterDraft_.begin(), characterDraft_.end(), [](const auto& c) { return c.starter; }));
+            if (!character.starter && starters >= 3) status_ = "A project may have at most three starting candidates.";
+            else if (character.starter && starters <= 1) status_ = "At least one starting candidate is required.";
+            else { character.starter = !character.starter; characterCatalogDirty_ = true; }
+            return;
+        }
+        if (CheckCollisionPointRec(mouse, {890, 225, 315, 42})) { character.recruitable = !character.recruitable; characterCatalogDirty_ = true; return; }
+        if (textField(1, CharacterField::RecruitmentText)) return;
+    } else {
+        if (textField(0, CharacterField::EquipmentTags) || textField(1, CharacterField::StartingEquipment)) return;
+    }
+}
+
+void LevelEditor::drawCharacterCreator() const {
+    DrawRectangle(0, 0, 1280, 720, Color{4, 5, 7, 220});
+    DrawRectangle(245, 92, 990, 575, Panel);
+    DrawRectangleLines(245, 92, 990, 575, Accent);
+    DrawText("CHARACTER CREATOR", 270, 116, 25, Text);
+    DrawText(characterCatalogDirty_ ? "UNSAVED CHARACTER CHANGES" : "PROJECT CHARACTER CATALOG", 760, 122, 14,
+             characterCatalogDirty_ ? Invalid : Valid);
+    drawButton({1120, 112, 100, 32}, "CLOSE", false, 13);
+    for (int row = 0; row < 9 && characterScroll_ + row < static_cast<int>(characterDraft_.size()); ++row) {
+        const int index = characterScroll_ + row;
+        drawButton({270, 178.0f + row * 42.0f, 250, 34}, shortened(characterDraft_[static_cast<std::size_t>(index)].name, 25).c_str(),
+                   index == selectedCharacter_, 15);
+    }
+    if (characterDraft_.size() > 9)
+        DrawText(TextFormat("%d-%d OF %d", characterScroll_ + 1,
+                            std::min(characterScroll_ + 9, static_cast<int>(characterDraft_.size())),
+                            static_cast<int>(characterDraft_.size())), 270, 559, 12, Muted);
+    drawButton({270, 575, 120, 34}, "ADD", false, 15);
+    drawButton({400, 575, 120, 34}, "DELETE", false, 15);
+    const char* tabs[] = {"IDENTITY", "ROLE", "RECRUITMENT", "ADVANCED"};
+    for (int i = 0; i < 4; ++i) drawButton({550.0f + i * 165.0f, 160, 155, 34}, tabs[i], static_cast<int>(characterTab_) == i, 13);
+    if (!characterDraft_.empty()) {
+        const auto& c = characterDraft_[static_cast<std::size_t>(selectedCharacter_)];
+        const auto field = [&](int row, const char* label, const std::string& value, CharacterField active) {
+            DrawText(label, 550, 205 + row * 58, 13, Muted);
+            drawButton({550, 225.0f + row * 58.0f, 655, 42}, shortened(value.empty() ? "(empty)" : value, 66).c_str(),
+                       characterField_ == active, 14);
+        };
+        if (characterTab_ == CharacterTab::Identity) {
+            field(0, "DISPLAY NAME", c.name, CharacterField::Name);
+            field(1, "SUMMARY", c.summary, CharacterField::Summary);
+            DrawText(TextFormat("Stable ID: %u   Reference: %s", c.id, c.stableKey.c_str()), 550, 365, 14, Muted);
+        } else if (characterTab_ == CharacterTab::Role) {
+            field(0, "BROAD ROLE", c.role, CharacterField::Role);
+            field(1, "TRAITS / TAGS", c.traits, CharacterField::Traits);
+            drawButton({550, 360, 150, 34}, TextFormat("HP -  %d", c.maxHp), false, 13);
+            drawButton({710, 360, 150, 34}, TextFormat("HP +  %d", c.maxHp), false, 13);
+            drawButton({870, 360, 150, 34}, TextFormat("POWER -  %d", c.power), false, 13);
+            drawButton({1030, 360, 175, 34}, TextFormat("POWER +  %d", c.power), false, 13);
+            drawButton({550, 418, 655, 34}, c.abilityId.empty() ? "ABILITY: NONE" : "ABILITY: BASIC HEAL", false, 14);
+            DrawText("Basic attack: melee. More attack/ability definitions are a later catalog.", 550, 470, 13, Muted);
+        } else if (characterTab_ == CharacterTab::Recruitment) {
+            drawButton({550, 225, 315, 42}, c.starter ? "STARTING CANDIDATE: YES" : "STARTING CANDIDATE: NO", c.starter, 14);
+            drawButton({890, 225, 315, 42}, c.recruitable ? "RECRUITABLE: YES" : "RECRUITABLE: NO", c.recruitable, 14);
+            field(1, "RECRUITMENT TEXT", c.recruitmentText, CharacterField::RecruitmentText);
+            DrawText("Recruitable characters enter Reserve. Active party still caps at three.", 550, 365, 14, Muted);
+        } else {
+            field(0, "EQUIPMENT COMPATIBILITY TAGS", c.equipmentTags, CharacterField::EquipmentTags);
+            field(1, "STARTING EQUIPMENT IDS", c.startingEquipment, CharacterField::StartingEquipment);
+            DrawText(shortened("Portrait: " + (c.portraitPath.empty() ? std::string{"fallback silhouette"} : c.portraitPath), 70).c_str(), 550, 365, 14, Muted);
+            DrawText("Portrait upload/import will use content/portraits; fallback remains safe.", 550, 395, 14, Muted);
+        }
+    }
+    drawButton({900, 620, 145, 34}, "SAVE CHARACTERS", false, 13);
+    drawButton({1060, 620, 145, 34}, "REVERT", false, 13);
+    DrawText(shortened(status_, 70).c_str(), 270, 632, 12, Accent);
 }
 
 void LevelEditor::newLevel() {
@@ -781,7 +977,7 @@ void LevelEditor::setLayer(Layer layer) {
         case Layer::Wall: status_ = "Wall layer: paint finishes onto solid wall cells."; break;
         case Layer::Floor: status_ = "Floor layer: paint finishes onto walkable cells."; break;
         case Layer::Ceiling: status_ = "Ceiling layer: paint a material or open sky."; break;
-        case Layer::Objects: status_ = "Object layer: place enemies, pickups, doors, props, lore, and NPCs."; break;
+        case Layer::Objects: status_ = "Object layer: place encounters, lore, recruits, and party points."; break;
         case Layer::Story: status_ = "Story layer: draw rooms and author their purpose, mood, and lore."; break;
         case Layer::Triggers: status_ = "Trigger layer: connect dungeon events to discovery text."; break;
         case Layer::Lights: status_ = "Light layer: place or erase torches cell by cell."; break;
@@ -986,7 +1182,8 @@ void LevelEditor::paintObject(int x, int y) {
         auto candidate = level_;
         bool found = false;
         for (const auto& selection : LevelEditing::at(level_, x, y)) {
-            if (selection.kind == SelectionKind::Spawn || selection.kind == SelectionKind::Light) continue;
+            if (selection.kind == SelectionKind::Spawn || selection.kind == SelectionKind::Light ||
+                selection.kind == SelectionKind::Room || selection.kind == SelectionKind::Trigger) continue;
             std::string error;
             if (!LevelEditing::erase(candidate, selection, error)) { status_ = error; return; }
             found = true;
@@ -1029,6 +1226,23 @@ void LevelEditor::paintObject(int x, int y) {
         return;
     }
 
+    const CharacterDefinition* recruitDefinition = nullptr;
+    if (objectBrush_ == ObjectBrush::Recruit) {
+        if (!project_.isOpen()) {
+            status_ = "Open a project before placing a recruit.";
+            return;
+        }
+        const auto& characters = project_.characters();
+        const auto recruit = std::find_if(characters.begin(), characters.end(), [](const auto& character) {
+            return character.recruitable && !character.starter;
+        });
+        if (recruit == characters.end()) {
+            status_ = "Create a non-starter recruitable character in Character Creator first.";
+            return;
+        }
+        recruitDefinition = &*recruit;
+    }
+
     recordUndo();
     if (objectBrush_ == ObjectBrush::EnemyProwler || objectBrush_ == ObjectBrush::EnemyBrute) {
         Enemy enemy;
@@ -1056,6 +1270,8 @@ void LevelEditor::paintObject(int x, int y) {
         else if (objectBrush_ == ObjectBrush::Note) kind = WorldObjectKind::Note;
         else if (objectBrush_ == ObjectBrush::Corpse) kind = WorldObjectKind::Corpse;
         else if (objectBrush_ == ObjectBrush::Npc) kind = WorldObjectKind::Npc;
+        else if (objectBrush_ == ObjectBrush::Recruit) kind = WorldObjectKind::Recruit;
+        else if (objectBrush_ == ObjectBrush::PartyManagement) kind = WorldObjectKind::PartyManagement;
         WorldObject object;
         object.id = stableId(level_, lowercase(objectKindLabel(kind)), x, y);
         object.kind = kind;
@@ -1064,6 +1280,16 @@ void LevelEditor::paintObject(int x, int y) {
         object.name = objectKindLabel(kind);
         object.text = kind == WorldObjectKind::Note ? "The note has not been written yet."
             : (kind == WorldObjectKind::Shrine ? "The shrine waits in silence." : "Nothing more is known yet.");
+        if (kind == WorldObjectKind::Recruit && recruitDefinition != nullptr) {
+            object.characterId = recruitDefinition->id;
+            object.name = recruitDefinition->name;
+            object.text = recruitDefinition->recruitmentText.empty()
+                ? recruitDefinition->name + " joins the reserve roster."
+                : recruitDefinition->recruitmentText;
+            object.blocksMovement = true;
+        } else if (kind == WorldObjectKind::PartyManagement) {
+            object.text = "Choose which recruited companions travel with you.";
+        }
         level_.objects.push_back(std::move(object));
         selectedObjectIndex_ = static_cast<int>(level_.objects.size()) - 1;
     }
@@ -1498,6 +1724,7 @@ void LevelEditor::update() {
         updateTextEdit();
         return;
     }
+    if (characterCreatorOpen_) { updateCharacterCreator(); return; }
     if (projectPanelOpen_) { updateProjectPanel(); return; }
     if (importPanelOpen_) {
         if (IsKeyPressed(KEY_ESCAPE)) {
@@ -1609,10 +1836,10 @@ void LevelEditor::update() {
                 }
             }
         } else if (layer_ == Layer::Objects) {
-            static constexpr std::array<const char*, 13> labels = {
+            static constexpr std::array<const char*, 15> labels = {
                 "Erase", "Enemy: Prowler", "Enemy: Brute", "Pickup: Key", "Pickup: Potion",
                 "Locked Door", "Unlocked Door", "Gate", "Prop", "Shrine", "Note / Inscription",
-                "Corpse", "NPC",
+                "Corpse", "NPC", "Recruit", "Party Management",
             };
             for (int index = 0; index < static_cast<int>(labels.size()); ++index) {
                 if (CheckCollisionPointRec(mouse, objectBrushButton(index))) {
@@ -1622,8 +1849,8 @@ void LevelEditor::update() {
                 }
             }
             if (selectedObjectIndex_ >= 0 && selectedObjectIndex_ < static_cast<int>(level_.objects.size())) {
-                if (CheckCollisionPointRec(mouse, storyFieldBounds(4))) { beginTextEdit(TextField::ObjectName); return; }
-                if (CheckCollisionPointRec(mouse, storyFieldBounds(5))) { beginTextEdit(TextField::ObjectText); return; }
+                if (CheckCollisionPointRec(mouse, storyFieldBounds(5))) { beginTextEdit(TextField::ObjectName); return; }
+                if (CheckCollisionPointRec(mouse, storyFieldBounds(6))) { beginTextEdit(TextField::ObjectText); return; }
             }
         } else if (layer_ == Layer::Story) {
             if (CheckCollisionPointRec(mouse, storyModeButton(false))) {
@@ -1944,14 +2171,14 @@ void LevelEditor::draw() const {
         }
         DrawText("K = key   + = potion   X = enemy   blue dot = spawn   warm dot = light",
                  static_cast<int>(OptionX), 400, 15, Muted);
-        DrawText("Use OBJ for enemies, pickups, doors, props, notes, shrines, corpses, gates, and NPCs.",
+        DrawText("Use OBJ for encounters, doors, lore, recruits, and party-management points.",
                  static_cast<int>(OptionX), 426, 15, Muted);
     } else if (layer_ == Layer::Objects) {
         DrawText("OBJECT BRUSH", static_cast<int>(OptionX), 112, 14, Muted);
-        static constexpr std::array<const char*, 13> labels = {
+        static constexpr std::array<const char*, 15> labels = {
             "Erase", "Enemy: Prowler", "Enemy: Brute", "Pickup: Key", "Pickup: Potion",
             "Locked Door", "Unlocked Door", "Gate", "Prop", "Shrine", "Note / Inscription",
-            "Corpse", "NPC",
+            "Corpse", "NPC", "Recruit", "Party Management",
         };
         for (int index = 0; index < static_cast<int>(labels.size()); ++index) {
             drawButton(objectBrushButton(index), labels[static_cast<std::size_t>(index)],
@@ -1959,8 +2186,8 @@ void LevelEditor::draw() const {
         }
         if (selectedObjectIndex_ >= 0 && selectedObjectIndex_ < static_cast<int>(level_.objects.size())) {
             const auto& object = level_.objects[static_cast<std::size_t>(selectedObjectIndex_)];
-            drawTextField(storyFieldBounds(4), "SELECTED OBJECT NAME", object.name, textField_ == TextField::ObjectName);
-            drawTextField(storyFieldBounds(5), "INTERACTION / NOTE / DIALOGUE TEXT", object.text,
+            drawTextField(storyFieldBounds(5), "SELECTED OBJECT NAME", object.name, textField_ == TextField::ObjectName);
+            drawTextField(storyFieldBounds(6), "INTERACTION / NOTE / DIALOGUE TEXT", object.text,
                           textField_ == TextField::ObjectText);
         }
     } else if (layer_ == Layer::Story) {
@@ -2132,6 +2359,7 @@ void LevelEditor::draw() const {
     }
 
     if (projectPanelOpen_) drawProjectPanel();
+    if (characterCreatorOpen_) drawCharacterCreator();
     if (pendingAction_ != PendingAction::None) {
         DrawRectangleRec({0.0f, 0.0f, 1280.0f, 720.0f}, Color{4, 5, 7, 190});
         const Rectangle panel{330.0f, 250.0f, 620.0f, 190.0f};
@@ -2183,7 +2411,7 @@ void LevelEditor::updateInspector() {
     if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) return;
     if (CheckCollisionPointRec(mouse, {1175, 112, 45, 30})) { inspectorOpen_ = movingSelection_ = false; return; }
     int action = -1;
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < 6; ++i)
         if (CheckCollisionPointRec(mouse, {610, 255.0f + i*44.0f, 585, 34})) action = i;
     if (action < 0) return;
     int x{}, y{};
@@ -2196,12 +2424,51 @@ void LevelEditor::updateInspector() {
         recordUndo(); level_ = std::move(candidate); inspectorOpen_ = movingSelection_ = false;
         refreshValidation("Deleted selected object. Undo restores it."); return;
     }
-    if (selection_.kind == SelectionKind::Object) {
+    if (selection_.kind == SelectionKind::Room) {
+        const auto it = std::find_if(level_.rooms.begin(), level_.rooms.end(), [&](const auto& room) { return room.id == selection_.id; });
+        selectedRoomIndex_ = static_cast<int>(std::distance(level_.rooms.begin(), it));
+        if (action == 2) { inspectorOpen_ = false; setLayer(Layer::Story); return; }
+        if (action >= 3) {
+            auto candidate = level_; std::string error;
+            const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+            if (action == 5) { beginTextEdit(TextField::RoomName); return; }
+            if (!LevelEditing::resizeRoom(candidate, selection_, action == 3 ? (shift ? -1 : 1) : 0,
+                                         action == 4 ? (shift ? -1 : 1) : 0, error)) { status_ = error; return; }
+            recordUndo(); level_ = std::move(candidate);
+        }
+    } else if (selection_.kind == SelectionKind::Trigger) {
+        const auto it = std::find_if(level_.triggers.begin(), level_.triggers.end(), [&](const auto& trigger) { return trigger.id == selection_.id; });
+        selectedTriggerIndex_ = static_cast<int>(std::distance(level_.triggers.begin(), it));
+        if (action == 3) { beginTextEdit(TextField::TriggerMessage); return; }
+        if (action == 4) {
+            if (it->subjectId.empty()) { status_ = "This event already uses its cell location."; return; }
+            recordUndo(); it->subjectId.clear();
+        } else if (action == 2) { recordUndo(); it->once = !it->once; }
+        else return;
+    } else if (selection_.kind == SelectionKind::Object) {
         const auto it = std::find_if(level_.objects.begin(), level_.objects.end(), [&](const auto& o) { return o.id == selection_.id; });
         selectedObjectIndex_ = static_cast<int>(std::distance(level_.objects.begin(), it));
         if (action == 3) { beginTextEdit(TextField::ObjectName); return; }
         if (action == 4) { beginTextEdit(TextField::ObjectText); return; }
-        recordUndo(); it->blocksMovement = !it->blocksMovement;
+        if (action != 2) return;
+        if (it->kind == WorldObjectKind::Recruit) {
+            std::vector<const CharacterDefinition*> recruits;
+            for (const auto& character : project_.characters())
+                if (character.recruitable && !character.starter) recruits.push_back(&character);
+            if (recruits.empty()) { status_ = "Character Creator has no non-starter recruitable characters."; return; }
+            const auto current = std::find_if(recruits.begin(), recruits.end(), [&](const auto* character) {
+                return character->id == it->characterId;
+            });
+            const auto next = current == recruits.end() ? recruits.front()
+                : recruits[(static_cast<std::size_t>(std::distance(recruits.begin(), current)) + 1) % recruits.size()];
+            recordUndo();
+            it->characterId = next->id;
+            it->name = next->name;
+            it->text = next->recruitmentText.empty() ? next->name + " joins the reserve roster." : next->recruitmentText;
+        } else {
+            recordUndo();
+            it->blocksMovement = !it->blocksMovement;
+        }
     } else if (action != 2) return;
     else if (selection_.kind == SelectionKind::Spawn) {
         recordUndo(); level_.spawnDirection = (level_.spawnDirection + 1) % 4;
@@ -2250,16 +2517,38 @@ void LevelEditor::drawInspector() const {
     case SelectionKind::Pickup: title = "PICKUP"; property = "SWITCH KEY / POTION"; break;
     case SelectionKind::Light: title = "LIGHT"; property = "NEXT LIGHT TYPE"; break;
     case SelectionKind::Object: title = "WORLD OBJECT"; property = "TOGGLE MOVEMENT BLOCKING"; break;
+    case SelectionKind::Room: title = "STORY ROOM"; property = "EDIT ROOM STORY FIELDS"; break;
+    case SelectionKind::Trigger: title = "EVENT TRIGGER"; property = "TOGGLE ONCE / REPEAT"; break;
     }
     DrawText(TextFormat("%s   CELL %d, %d", title.c_str(), x, y), 610, 160, 17, Text);
     DrawText(shortened("ID: " + (selection_.kind == SelectionKind::Spawn ? std::string{"level-owned spawn"} : selection_.id), 68).c_str(), 610, 188, 14, Muted);
     std::string detail;
+    for (const auto& room : level_.rooms) if (selection_.kind == SelectionKind::Room && room.id == selection_.id) {
+        detail = room.name + " / " + std::to_string(room.width) + " x " + std::to_string(room.height);
+        DrawRectangleLinesEx({map.x+room.x*size, map.y+room.y*size, room.width*size, room.height*size}, 2, Accent);
+        drawButton({610, 387, 585, 34}, "WIDTH +1 (SHIFT: -1)", false, 14);
+        drawButton({610, 431, 585, 34}, "HEIGHT +1 (SHIFT: -1)", false, 14);
+        drawButton({610, 475, 585, 30}, "EDIT ROOM NAME", false, 14);
+    }
+    for (const auto& trigger : level_.triggers) if (selection_.kind == SelectionKind::Trigger && trigger.id == selection_.id) {
+        detail = std::string(triggerEventName(trigger.event)) + (trigger.once ? " / ONCE" : " / REPEAT");
+        drawButton({610, 387, 585, 34}, shortened("MESSAGE: " + trigger.message, 58).c_str(), textField_ == TextField::TriggerMessage, 14);
+        drawButton({610, 431, 585, 34}, shortened("UNBIND SUBJECT: " + trigger.subjectId, 58).c_str(), false, 14);
+    }
     if (selection_.kind == SelectionKind::Spawn) detail = std::string("Facing: ") + std::array<const char*,4>{"NORTH","EAST","SOUTH","WEST"}[level_.spawnDirection];
     for (const auto& door : level_.doors) if (selection_.kind == SelectionKind::Door && door.id == selection_.id) detail = door.locked ? "LOCKED" : "UNLOCKED";
     for (const auto& enemy : level_.enemies) if (selection_.kind == SelectionKind::Enemy && enemy.id == selection_.id) detail = enemyTypeOrDefault(enemy.typeId).name + " / HP " + std::to_string(enemy.hp);
     for (const auto& item : level_.pickups) if (selection_.kind == SelectionKind::Pickup && item.id == selection_.id) detail = item.type == Pickup::Type::Key ? "KEY" : "POTION";
     for (const auto& object : level_.objects) if (selection_.kind == SelectionKind::Object && object.id == selection_.id) {
         detail = object.name + (object.blocksMovement ? " / BLOCKING" : " / WALKABLE");
+        if (object.kind == WorldObjectKind::Recruit) {
+            property = "NEXT RECRUITABLE CHARACTER";
+            const auto& characters = project_.characters();
+            const auto character = std::find_if(characters.begin(), characters.end(), [&](const auto& entry) {
+                return entry.id == object.characterId;
+            });
+            detail += character == characters.end() ? " / MISSING CHARACTER" : " / " + character->name;
+        }
         drawButton({610, 387, 585, 34}, shortened("NAME: " + object.name, 58).c_str(), textField_ == TextField::ObjectName, 14);
         drawButton({610, 431, 585, 34}, shortened("TEXT: " + object.text, 58).c_str(), textField_ == TextField::ObjectText, 14);
     }
@@ -2267,7 +2556,7 @@ void LevelEditor::drawInspector() const {
     drawButton({610, 255, 585, 34}, movingSelection_ ? "CLICK DESTINATION ON MAP" : "MOVE", movingSelection_, 16);
     drawButton({610, 299, 585, 34}, "DELETE (UNDOABLE; ATTACHED EVENTS PROTECTED)", false, 14);
     drawButton({610, 343, 585, 34}, property.c_str(), false, 15);
-    DrawText("Right-click a cell to select / cycle. ESC cancels or closes.", 610, 494, 14, Muted);
+    DrawText("Right-click to select / cycle. ESC cancels or closes.", 610, 516, 12, Muted);
 }
 
 } // namespace sv

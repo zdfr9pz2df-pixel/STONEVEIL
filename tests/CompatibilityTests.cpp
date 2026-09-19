@@ -61,7 +61,7 @@ void oldFormatsAndMalformedInput() {
     const char* path = "compat-level.svl";
     LevelDefinition level;
     std::string error;
-    for (int version = 1; version <= 6; ++version) {
+    for (int version = 1; version <= 7; ++version) {
         writeFixture(path, legacyLevel(version));
         CHECK(LevelIO::load(path, level, error));
         CHECK(level.doors.size() == 1 && level.doors[0].id == "door.legacy.1");

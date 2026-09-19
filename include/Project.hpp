@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Campaign.hpp"
+#include "Character.hpp"
 #include <string>
 #include <vector>
 
@@ -15,6 +16,8 @@ public:
     bool save(std::string& error) const;
     bool registerLevel(const std::string& levelFile, std::string& error);
     bool setStartingLevel(const std::string& id, std::string& error);
+    bool saveCharacters(const std::vector<CharacterDefinition>& definitions, std::string& error);
+    const std::vector<CharacterDefinition>& characters() const { return characters_; }
     std::vector<ProjectIssue> validate() const;
     bool exportWindowsGame(const std::string& executable, const std::string& destination, std::string& error) const;
 
@@ -30,5 +33,6 @@ private:
     std::string root_;
     std::string campaignPath_{"content/campaigns/main.campaign"};
     CampaignDefinition campaign_;
+    std::vector<CharacterDefinition> characters_{characterDefinitions()};
 };
 }

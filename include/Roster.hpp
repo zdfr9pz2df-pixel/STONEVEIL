@@ -9,6 +9,10 @@ namespace sv {
 class Roster {
 public:
     Roster();
+    bool setDefinitions(const std::vector<CharacterDefinition>& definitions);
+    const CharacterDefinition* definition(CharacterId id) const;
+    const std::vector<CharacterDefinition>& definitions() const { return definitions_; }
+    std::vector<CharacterId> starterIds() const;
 
     void reset();
     bool beginNewGame(const std::vector<CharacterId>& selectedStarters);
@@ -24,6 +28,7 @@ public:
     bool restore(const std::vector<CharacterRecord>& records);
 
 private:
+    std::vector<CharacterDefinition> definitions_{characterDefinitions()};
     std::vector<CharacterRecord> records_;
 };
 

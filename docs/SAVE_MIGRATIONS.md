@@ -2,12 +2,22 @@
 
 ## Authored levels
 
-Level format remains version 6. Readers accept versions 1–6. Older levels gain
+Level format is version 7. Readers accept versions 1–7. Version 7 adds a stable
+numeric character reference to world-object records so recruit interactions do
+not depend on display names or list order. Version 6 objects load with no
+character reference and save back in version 7. Older levels gain
 deterministic pickup/enemy/door IDs in memory and upgrade when saved. Map row
 shape is now checked before legacy ID migration. Compiled door event IDs must
 not collide with authored trigger IDs.
 
 ## Player saves
+
+Project character definitions live in the v1 `.svc` catalog and are loaded
+before the player save. Save v5 continues to store only mutable CharacterRecord
+state by stable numeric ID. Loading rejects missing IDs or HP above the current
+definition maximum without mutating the active game. Adding an unrecruited
+definition is compatible with an older save; removing or renumbering a character
+referenced by a save requires a future explicit project migration.
 
 Current writer: `STONEVEIL_SAVE 5`. Readers: pre-versioned, 2, 3, 4, 5.
 

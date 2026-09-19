@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EventSystem.hpp"
+#include "Character.hpp"
 #include <string>
 #include <vector>
 
@@ -16,7 +17,7 @@ struct DoorPlacement {
     bool locked{true};
 };
 
-enum class WorldObjectKind { Prop, Shrine, Note, Corpse, Npc };
+enum class WorldObjectKind { Prop, Shrine, Note, Corpse, Npc, Recruit, PartyManagement };
 
 struct WorldObject {
     std::string id;
@@ -26,6 +27,7 @@ struct WorldObject {
     std::string name;
     std::string text;
     bool blocksMovement{false};
+    CharacterId characterId{InvalidCharacterId};
 };
 
 struct StoryRoom {

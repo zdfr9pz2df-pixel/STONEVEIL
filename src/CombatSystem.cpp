@@ -37,7 +37,7 @@ CombatEvent CombatSystem::partyAttack(Roster& roster, const Party& party, Dungeo
     int damage = 0;
     for (const auto id : party.members()) {
         const auto* record = roster.find(id);
-        const auto* definition = findCharacterDefinition(id);
+        const auto* definition = roster.definition(id);
         if (record != nullptr && definition != nullptr && record->alive()) damage += definition->power;
     }
     damage = std::max(1, damage / 2 + randomInt(0, 5));
@@ -105,7 +105,7 @@ CombatEvent CombatSystem::updateEnemies(float dt,
 
             const int rolled = type.power + randomInt(-1, 2);
             const int damage = std::max(1, static_cast<int>(static_cast<float>(rolled) * pick.damageScale));
-            const auto* definition = findCharacterDefinition(pick.target);
+            const auto* definition = roster.definition(pick.target);
             const std::string name = definition != nullptr ? definition->name : "A companion";
             if (roster.damage(pick.target, damage)) {
                 party.remove(pick.target);

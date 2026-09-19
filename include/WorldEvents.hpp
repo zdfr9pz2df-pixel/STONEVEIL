@@ -11,6 +11,8 @@ enum class WorldEventCue { DoorOpened, DoorLocked };
 struct WorldEventPresentation {
     std::function<void(const std::string&)> message;
     std::function<void(WorldEventCue)> cue;
+    std::function<bool(CharacterId)> recruit;
+    std::function<void()> openPartyManagement;
 };
 
 bool configureWorldEvents(const Dungeon& dungeon, EventRuntime& runtime);

@@ -178,7 +178,7 @@ bool SaveSystem::save(const std::string& path,
                       int potions,
                       int xp,
                       const EventRuntime* events) {
-    Roster validatedRoster;
+    Roster validatedRoster = roster;
     EventRuntime validatedEvents;
     if (keys < 0 || potions < 0 || xp < 0 || !validatedRoster.restore(roster.records()) ||
         !configureWorldEvents(dungeon, validatedEvents) ||
@@ -248,7 +248,7 @@ bool SaveSystem::load(const std::string& path,
     EventRuntime loadedEvents;
     if (!configureWorldEvents(loadedDungeon, loadedEvents)) return false;
     PlayerState loadedPlayer{loadedDungeon.spawnX(), loadedDungeon.spawnY(), loadedDungeon.spawnDirection()};
-    Roster loadedRoster;
+    Roster loadedRoster = roster;
     Party loadedParty;
     int loadedKeys{};
     int loadedPotions{};
@@ -274,13 +274,13 @@ bool SaveSystem::load(const std::string& path,
         std::istringstream legacyX(header);
         if (!(legacyX >> playerX)) return false;
         input >> playerY >> playerDirection >> loadedKeys >> loadedPotions >> loadedXp;
-        const auto starters = starterCharacterIds();
+        const auto starters = loadedRoster.starterIds();
         if (!input || !loadedRoster.beginNewGame(starters) || !loadedParty.setMembers(starters)) return false;
         for (const auto id : starters) {
             int hp{};
             input >> hp;
             auto* record = loadedRoster.find(id);
-            const auto* definition = findCharacterDefinition(id);
+            const auto* definition = loadedRoster.definition(id);
             if (!input || record == nullptr || definition == nullptr) return false;
             record->hp = std::clamp(hp, 0, definition->maxHp);
             if (record->hp == 0) {

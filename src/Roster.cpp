@@ -10,11 +10,26 @@ namespace sv {
 Roster::Roster() {
     reset();
 }
+bool Roster::setDefinitions(const std::vector<CharacterDefinition>& definitions) {
+    if (!CharacterCatalogIO::validate(definitions).empty()) return false;
+    definitions_ = definitions;
+    reset();
+    return true;
+}
+const CharacterDefinition* Roster::definition(CharacterId id) const {
+    const auto it = std::find_if(definitions_.begin(), definitions_.end(), [id](const auto& d) { return d.id == id; });
+    return it == definitions_.end() ? nullptr : &*it;
+}
+std::vector<CharacterId> Roster::starterIds() const {
+    std::vector<CharacterId> ids;
+    for (const auto& d : definitions_) if (d.starter) ids.push_back(d.id);
+    return ids;
+}
 
 void Roster::reset() {
     records_.clear();
-    records_.reserve(characterDefinitions().size());
-    for (const auto& definition : characterDefinitions()) {
+    records_.reserve(definitions_.size());
+    for (const auto& definition : definitions_) {
         records_.push_back({definition.id, definition.maxHp, 0, CharacterStatus::Unrecruited});
     }
 }
@@ -24,13 +39,13 @@ bool Roster::beginNewGame(const std::vector<CharacterId>& selectedStarters) {
 
     std::unordered_set<CharacterId> selected;
     for (const auto id : selectedStarters) {
-        const auto* definition = findCharacterDefinition(id);
+        const auto* definition = this->definition(id);
         if (definition == nullptr || !definition->starter || !selected.insert(id).second) return false;
     }
 
     reset();
     for (auto& record : records_) {
-        const auto* definition = findCharacterDefinition(record.id);
+        const auto* definition = this->definition(record.id);
         if (definition != nullptr && definition->starter) record.status = CharacterStatus::Reserve;
     }
     return setActiveParty(selectedStarters);
@@ -38,7 +53,7 @@ bool Roster::beginNewGame(const std::vector<CharacterId>& selectedStarters) {
 
 bool Roster::recruit(CharacterId id) {
     auto* record = find(id);
-    const auto* definition = findCharacterDefinition(id);
+    const auto* definition = this->definition(id);
     if (record == nullptr || definition == nullptr || record->status != CharacterStatus::Unrecruited) return false;
     record->hp = definition->maxHp;
     record->status = CharacterStatus::Reserve;
@@ -89,18 +104,18 @@ bool Roster::damage(CharacterId id, int amount) {
 
 bool Roster::heal(CharacterId id, int amount) {
     auto* record = find(id);
-    const auto* definition = findCharacterDefinition(id);
+    const auto* definition = this->definition(id);
     if (record == nullptr || definition == nullptr || !record->alive() || amount <= 0 || record->hp >= definition->maxHp) return false;
     record->hp = std::min(definition->maxHp, record->hp + amount);
     return true;
 }
 
 bool Roster::restore(const std::vector<CharacterRecord>& records) {
-    if (records.size() > characterDefinitions().size()) return false;
+    if (records.size() > definitions_.size()) return false;
     std::unordered_set<CharacterId> seen;
     std::size_t activeCount = 0;
     for (const auto& record : records) {
-        const auto* definition = findCharacterDefinition(record.id);
+        const auto* definition = this->definition(record.id);
         if (definition == nullptr || !seen.insert(record.id).second || record.hp < 0 || record.hp > definition->maxHp) return false;
         if ((record.hp == 0) != (record.status == CharacterStatus::Dead)) return false;
         if (record.xp < 0 || record.status < CharacterStatus::Unrecruited || record.status > CharacterStatus::Dead) return false;

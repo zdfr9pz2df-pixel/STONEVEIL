@@ -20,9 +20,12 @@ public:
     const LevelDefinition& level() const { return level_; }
     void showLightsLayerForCapture();
     void showStoryLayerForCapture();
+    void showObjectsLayerForCapture();
     void showProjectPanelForCapture(bool visible) { projectPanelOpen_ = visible; }
     void showInspectorForCapture() { selection_ = {}; inspectorOpen_ = true; }
     void closeInspectorForCapture() { inspectorOpen_ = movingSelection_ = false; }
+    void showCharacterCreatorForCapture() { projectPanelOpen_ = true; openCharacterCreator(); }
+    void closeCharacterCreatorForCapture() { characterCreatorOpen_ = false; }
     bool consumePlaytestRequest();
     bool consumeExitRequest();
     bool hasUnsavedChanges() const { return document_.dirty(); }
@@ -68,6 +71,8 @@ private:
         Note,
         Corpse,
         Npc,
+        Recruit,
+        PartyManagement,
     };
 
     enum class TextField {
@@ -85,6 +90,8 @@ private:
     };
 
     enum class PendingAction { None, Exit, Reload, NewLevel, Quit, NewProject, OpenProject, OpenLevel, OpenRegistered };
+    enum class CharacterTab { Identity, Role, Recruitment, Advanced };
+    enum class CharacterField { None, Name, Role, Summary, Traits, EquipmentTags, StartingEquipment, RecruitmentText };
 
     void loadLevel(const std::string& path = {});
     void saveLevel();
@@ -95,6 +102,11 @@ private:
     void projectAction(PendingAction action);
     void updateProjectPanel();
     void drawProjectPanel() const;
+    void openCharacterCreator();
+    void updateCharacterCreator();
+    void drawCharacterCreator() const;
+    std::string* activeCharacterText();
+    void saveCharacterCatalog();
     void registerSavedLevel();
     void inspectCell(int x, int y);
     void updateInspector();
@@ -136,6 +148,13 @@ private:
     bool inspectorOpen_{false};
     bool movingSelection_{false};
     bool projectPanelOpen_{false};
+    bool characterCreatorOpen_{false};
+    bool characterCatalogDirty_{false};
+    std::vector<CharacterDefinition> characterDraft_;
+    int selectedCharacter_{0};
+    int characterScroll_{0};
+    CharacterTab characterTab_{CharacterTab::Identity};
+    CharacterField characterField_{CharacterField::None};
     int projectScroll_{0};
     int requestedProjectLevel_{0};
     std::string levelDirectory_;

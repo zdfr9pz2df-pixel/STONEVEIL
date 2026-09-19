@@ -7,9 +7,9 @@ does not satisfy a gate.
 | Gate | Status | Acceptance required | Evidence / remaining gap |
 | --- | --- | --- | --- |
 | 1 Repository consolidation | VERIFIED | Preserve local and PR work; one integration branch; Release, CTest, Windows CI and compatibility checks pass | 8f24aca: local Release/CTest 4/4, Windows CI run 35409657662 success, editor/game captures, package validation; PR #2 includes PR #1 parent and preserved working editor. |
-| 2 Editor shell | IN PROGRESS | New/Open/Save Project and Level; geometry/object editing, selection, movement/facing, inspector, Play, Undo/Redo | LevelDocument owns file identity/history, untitled New/import, unique Save As, save-point-aware undo/redo, and failed-load preservation. Close/discard guards and exit-paint undo fixed. Project operations/browser and native file dialogs now exist; object movement and inspector remain. |
-| 3 Character Creator + Roster | IN PROGRESS | Author character, recruit once, active/reserve management at generic point, max 3, permanent death and save/load consistency | Max 3 enforced; reserve swap, non-healing duplicate recruit and death persistence tests pass. Static catalog only; authored creator/management/downed lifecycle absent. |
-| 4 Core authoring objects | IN PROGRESS | All twelve object families with IDs, location, properties, common triggers/actions and validation | Existing story/door authoring uses common EventRuntime. Rich PR compilers retained/tested. Advanced contextual behaviors, transitions, recruitment and management remain. |
+| 2 Editor shell | IN PROGRESS | New/Open/Save Project and Level; geometry/object editing, selection, movement/facing, inspector, Play, Undo/Redo | Project/document operations plus contextual object, room and trigger selection/movement/inspection exist. Rich behavior inspectors and authored non-spawn facing remain. |
+| 3 Character Creator + Roster | IN PROGRESS | Author character, recruit once, active/reserve management at generic point, max 3, permanent death and save/load consistency | Project-authored v1 character catalog drives roster/combat/HUD/save/export. Stable-ID recruit objects add Reserve members exactly once; generic management points provide scrolling active/reserve swaps with max 3, and save/load preservation is tested. Downed and runtime equipment/ability catalogs remain. |
+| 4 Core authoring objects | IN PROGRESS | All twelve object families with IDs, location, properties, common triggers/actions and validation | Existing story/door/recruit/management authoring uses common EventRuntime. Rich PR compilers retained/tested. Advanced contextual behaviors and transitions remain. |
 | 5 Self-hosted test game | NOT STARTED | Editor-created two-level game proves speech/combat/items/doors/recruitment/management/death/saves/transition without engine content changes | Existing sample levels do not prove this acceptance. |
 | 6 Project/save/export | IN PROGRESS | Versioned project and save data, migrations, references and standalone Windows export from editor | Save v5 stores event state and entity IDs; legacy formats tested. Versioned project, registry browser, atomic individual writes and editor Windows export implemented; full campaign/save lifecycle still incomplete. |
 | 7 Stable combat contract | IN PROGRESS | Document and prove 1–3 control, abilities, cooldowns, ranged/projectiles, interception, movement, downed/death/failure and save behavior | Melee/formation/action gates exist; remaining mechanics and contract incomplete. |
@@ -53,11 +53,20 @@ does not satisfy a gate.
   occupied/boundary rejection, door-marker movement, stable/legacy event
   following, protected deletion and undo/redo are tested. Spawn inspector
   capture inspected at build/object-inspector-smoke/object-inspector.png.
-  Gate 2 remains IN PROGRESS: room/trigger spatial transforms, rich behavior
-  inspection and authored non-spawn facing are not implemented.
+  Gate 2 remains IN PROGRESS: room/trigger spatial transforms now exist; rich
+  behavior inspection and authored non-spawn facing are not implemented.
+- Character-catalog slice: local Release and CTest 8/8 pass, including catalog
+  validation/roundtrip and project export/reopen. Character Creator capture is
+  under build/character-creator-smoke.
+- Recruitment slice: local MSVC Release and CTest 9/9 pass. Version 7 level
+  migration, stable recruit references, duplicate/non-healing recruit behavior,
+  generic management dispatch, project reference validation, scrolling roster,
+  and authored-character save/load are covered. UI captures include the Object
+  layer and Party Management screen. Downed and equipment/ability runtime
+  behavior remain outside this checkpoint.
 
-- External character catalog, recruitment UI, management points and destination
-  transitions remain absent. Project browser/creator and basic export now exist.
+- Destination transitions remain absent. Project browser/creator, recruit and
+  management points, and basic export now exist.
 - Richer Story Tile/door compiler fields still need format/editor/runtime
   adapters. Current authored events are messages and existing door behaviors.
 - Saves do not preserve full active-combat cooldown/RNG state. Legacy saves
@@ -75,6 +84,6 @@ does not satisfy a gate.
 
 ## Next highest-leverage task
 
-Extend the inspector to room/trigger transforms and richer authored behaviors;
-then proceed to the authored Character Creator/roster gate. Do not treat the
-current per-type property controls as a complete behavior-authoring interface.
+Author level transitions for the two-level self-hosting test, including explicit
+destination IDs and safe campaign state. Do not treat the current creator fields
+as a complete equipment or ability system.

@@ -31,6 +31,14 @@ struct CharacterDefinition {
     int maxHp{};
     int power{};
     bool starter{false};
+    std::string portraitPath;
+    std::string traits;
+    std::string attackId{"attack.melee"};
+    std::string abilityId{"ability.heal"};
+    std::string equipmentTags{"weapon,armor"};
+    std::string startingEquipment;
+    bool recruitable{true};
+    std::string recruitmentText;
 };
 
 struct CharacterRecord {
@@ -43,6 +51,12 @@ struct CharacterRecord {
 };
 
 const std::vector<CharacterDefinition>& characterDefinitions();
+class CharacterCatalogIO {
+public:
+    static std::vector<std::string> validate(const std::vector<CharacterDefinition>& definitions);
+    static bool load(const std::string& path, std::vector<CharacterDefinition>& definitions, std::string& error);
+    static bool save(const std::string& path, const std::vector<CharacterDefinition>& definitions, std::string& error);
+};
 const CharacterDefinition* findCharacterDefinition(CharacterId id);
 std::vector<CharacterId> starterCharacterIds();
 

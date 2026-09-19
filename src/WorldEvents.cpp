@@ -29,6 +29,21 @@ bool configureWorldEvents(const Dungeon& dungeon, EventRuntime& runtime) {
             if (!configured.addEvent(std::move(event))) return false;
         }
     }
+    for (const auto& object : dungeon.objects()) {
+        if (object.kind != WorldObjectKind::Recruit && object.kind != WorldObjectKind::PartyManagement) continue;
+        EventDefinition event;
+        event.id = object.id + (object.kind == WorldObjectKind::Recruit ? ".recruit" : ".manage");
+        event.name = object.name;
+        event.trigger = {EventTriggerType::InteractObject, -1, -1, object.id};
+        event.occurrence = EventOccurrence::EveryTime;
+        EventAction action;
+        action.type = object.kind == WorldObjectKind::Recruit
+            ? EventActionType::RecruitCharacter : EventActionType::OpenPartyManagement;
+        action.intValue = static_cast<int>(object.characterId);
+        action.text = object.text;
+        event.actions.push_back(std::move(action));
+        if (!configured.addEvent(std::move(event))) return false;
+    }
     runtime = std::move(configured);
     return true;
 }
@@ -67,6 +82,16 @@ EventFireResult dispatchWorldEvent(EventRuntime& runtime, const EventContext& co
                 break;
             case EventActionType::SendSignal:
                 runtime.fire({EventTriggerType::Signal, current.x, current.y, action.targetId}, services);
+                break;
+            case EventActionType::RecruitCharacter:
+                if (presentation.recruit && presentation.recruit(static_cast<CharacterId>(action.intValue))) {
+                    if (presentation.message) presentation.message(action.text.empty() ?
+                        "A new companion joins the reserve roster." : action.text);
+                } else if (presentation.message) presentation.message("This character is already recruited or unavailable.");
+                break;
+            case EventActionType::OpenPartyManagement:
+                if (presentation.message && !action.text.empty()) presentation.message(action.text);
+                if (presentation.openPartyManagement) presentation.openPartyManagement();
                 break;
             default:
                 // These PR compiler actions have no editor surface yet. Never

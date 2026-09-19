@@ -43,6 +43,8 @@ enum class EventActionType {
     ChangeMusic,
     SetFact,
     SendSignal,
+    RecruitCharacter,
+    OpenPartyManagement,
 };
 
 enum class EventOccurrence {

@@ -97,6 +97,7 @@ Game::Game(std::string levelPathOverride, std::string projectFile, bool runtimeO
         std::string error;
         if (project.open(projectFile_, error)) {
             campaign_ = project.campaign();
+            if (!roster_.setDefinitions(project.characters())) quitRequested_ = true;
             contentRoot_ = project.root();
             levelPath_ = project.levelPath(campaign_.startingLevelId);
             for (std::size_t i = 0; i < campaign_.levels.size(); ++i)
@@ -175,7 +176,7 @@ void Game::selectCampaignLevel(int delta) {
 }
 
 void Game::prepareNewGame() {
-    const auto starters = starterCharacterIds();
+    const auto starters = roster_.starterIds();
     selectedStarters_.clear();
     if (!starters.empty()) selectedStarters_.push_back(starters.front());
     starterCursor_ = 0;
@@ -205,7 +206,7 @@ void Game::openEditor() {
 void Game::beginEditorPlaytest() {
     if (editor_ == nullptr) return;
     adoptEditorProject();
-    const auto starters = starterCharacterIds();
+    const auto starters = roster_.starterIds();
     if (starters.empty()) return;
     resetWorld(editor_->level());
     party_.reset();
@@ -225,6 +226,7 @@ void Game::adoptEditorProject() {
         projectFile_ = editor_->project().path();
         contentRoot_ = editor_->project().root();
         campaign_ = editor_->project().campaign();
+        roster_.setDefinitions(editor_->project().characters());
         campaignLevelIndex_ = 0;
         for (std::size_t i = 0; i < campaign_.levels.size(); ++i)
             if (campaign_.levels[i].id == editor_->level().id) campaignLevelIndex_ = static_cast<int>(i);
@@ -244,7 +246,7 @@ void Game::toggleStarter(CharacterId id) {
 }
 
 void Game::debugSetPartySize(int size) {
-    const auto starters = starterCharacterIds();
+    const auto starters = roster_.starterIds();
     if (starters.empty()) return;
     const int maximum = static_cast<int>(std::min<std::size_t>(starters.size(), Party::InitialCapacity));
     const int clamped = std::clamp(size, 1, maximum);
@@ -300,27 +302,35 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
 
     const auto titlePath = directory / "title-menu.png";
     const auto editorPath = directory / "dungeon-editor.png";
+    const auto objectEditorPath = directory / "object-editor.png";
     const auto lightDebugPath = directory / "lighting-debug.png";
     const auto storyEditorPath = directory / "story-editor.png";
     const auto gameplayPath = directory / "gameplay-lighting.png";
+    const auto partyManagementPath = directory / "party-management.png";
     const auto rawWarmupPath = originalDirectory / "stoneveil-capture-warmup.png";
     const auto rawTitlePath = originalDirectory / "stoneveil-title-menu.png";
     const auto rawEditorPath = originalDirectory / "stoneveil-dungeon-editor.png";
+    const auto rawObjectEditorPath = originalDirectory / "stoneveil-object-editor.png";
     const auto rawLightDebugPath = originalDirectory / "stoneveil-lighting-debug.png";
     const auto rawStoryEditorPath = originalDirectory / "stoneveil-story-editor.png";
     const auto rawGameplayPath = originalDirectory / "stoneveil-gameplay-lighting.png";
+    const auto rawPartyManagementPath = originalDirectory / "stoneveil-party-management.png";
 
     std::filesystem::remove(titlePath, error);
     std::filesystem::remove(editorPath, error);
+    std::filesystem::remove(objectEditorPath, error);
     std::filesystem::remove(lightDebugPath, error);
     std::filesystem::remove(storyEditorPath, error);
     std::filesystem::remove(gameplayPath, error);
+    std::filesystem::remove(partyManagementPath, error);
     std::filesystem::remove(rawWarmupPath, error);
     std::filesystem::remove(rawTitlePath, error);
     std::filesystem::remove(rawEditorPath, error);
+    std::filesystem::remove(rawObjectEditorPath, error);
     std::filesystem::remove(rawLightDebugPath, error);
     std::filesystem::remove(rawStoryEditorPath, error);
     std::filesystem::remove(rawGameplayPath, error);
+    std::filesystem::remove(rawPartyManagementPath, error);
     error.clear();
 
     draw();
@@ -330,6 +340,10 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     draw();
     draw();
     TakeScreenshot("stoneveil-dungeon-editor.png");
+    if (editor_ != nullptr) editor_->showObjectsLayerForCapture();
+    draw();
+    draw();
+    TakeScreenshot("stoneveil-object-editor.png");
     if (!runtimeOnly_ && editor_ != nullptr) {
         editor_->showProjectPanelForCapture(true);
         draw();
@@ -347,6 +361,14 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
                                   std::filesystem::copy_options::overwrite_existing, error);
         std::filesystem::remove(originalDirectory / "stoneveil-object-inspector.png", error);
         editor_->closeInspectorForCapture();
+        editor_->showCharacterCreatorForCapture();
+        draw();
+        draw();
+        TakeScreenshot("stoneveil-character-creator.png");
+        std::filesystem::copy_file(originalDirectory / "stoneveil-character-creator.png", directory / "character-creator.png",
+                                  std::filesystem::copy_options::overwrite_existing, error);
+        std::filesystem::remove(originalDirectory / "stoneveil-character-creator.png", error);
+        editor_->closeCharacterCreatorForCapture();
     }
     if (editor_ != nullptr) editor_->showLightsLayerForCapture();
     draw();
@@ -363,6 +385,10 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     draw();
     draw();
     TakeScreenshot("stoneveil-gameplay-lighting.png");
+    enterMode(Mode::PartyManagement);
+    draw();
+    draw();
+    TakeScreenshot("stoneveil-party-management.png");
     enterMode(Mode::Title);
     draw();
     draw();
@@ -372,6 +398,10 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
                                std::filesystem::copy_options::overwrite_existing, error);
     if (!error) {
         std::filesystem::copy_file(rawEditorPath, editorPath,
+                                   std::filesystem::copy_options::overwrite_existing, error);
+    }
+    if (!error) {
+        std::filesystem::copy_file(rawObjectEditorPath, objectEditorPath,
                                    std::filesystem::copy_options::overwrite_existing, error);
     }
     if (!error) {
@@ -386,16 +416,23 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
         std::filesystem::copy_file(rawGameplayPath, gameplayPath,
                                    std::filesystem::copy_options::overwrite_existing, error);
     }
+    if (!error) {
+        std::filesystem::copy_file(rawPartyManagementPath, partyManagementPath,
+                                   std::filesystem::copy_options::overwrite_existing, error);
+    }
     const bool captured = !error && std::filesystem::exists(titlePath) &&
-        std::filesystem::exists(editorPath) && std::filesystem::exists(lightDebugPath) &&
+        std::filesystem::exists(editorPath) && std::filesystem::exists(objectEditorPath) &&
+        std::filesystem::exists(lightDebugPath) &&
         std::filesystem::exists(storyEditorPath) &&
-        std::filesystem::exists(gameplayPath);
+        std::filesystem::exists(gameplayPath) && std::filesystem::exists(partyManagementPath);
     std::filesystem::remove(rawWarmupPath, error);
     std::filesystem::remove(rawTitlePath, error);
     std::filesystem::remove(rawEditorPath, error);
+    std::filesystem::remove(rawObjectEditorPath, error);
     std::filesystem::remove(rawLightDebugPath, error);
     std::filesystem::remove(rawStoryEditorPath, error);
     std::filesystem::remove(rawGameplayPath, error);
+    std::filesystem::remove(rawPartyManagementPath, error);
     audio_.shutdown();
     CloseWindow();
     return captured;
@@ -483,6 +520,10 @@ void Game::update(float dt) {
         updateNewGame();
         return;
     }
+    if (mode_ == Mode::PartyManagement) {
+        updatePartyManagement();
+        return;
+    }
 
     if (mode_ == Mode::Victory || mode_ == Mode::Defeat) {
         if (editorPlaytest_) {
@@ -505,7 +546,7 @@ void Game::update(float dt) {
 }
 
 void Game::updateNewGame() {
-    const auto starters = starterCharacterIds();
+    const auto starters = roster_.starterIds();
     if (starters.empty()) {
         enterMode(Mode::Title);
         return;
@@ -554,6 +595,69 @@ void Game::updateNewGame() {
     }
 }
 
+void Game::updatePartyManagement() {
+    std::vector<CharacterId> visible;
+    for (const auto& record : roster_.records())
+        if (record.status != CharacterStatus::Unrecruited) visible.push_back(record.id);
+    if (visible.empty()) { enterMode(Mode::Playing); return; }
+    managementCursor_ = std::clamp(managementCursor_, 0, static_cast<int>(visible.size()) - 1);
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        pendingReserveId_ = InvalidCharacterId;
+        enterMode(Mode::Playing);
+        return;
+    }
+    if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) managementCursor_ =
+        (managementCursor_ + static_cast<int>(visible.size()) - 1) % static_cast<int>(visible.size());
+    if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) managementCursor_ =
+        (managementCursor_ + 1) % static_cast<int>(visible.size());
+    const auto choose = [&](CharacterId id) {
+        const auto* record = roster_.find(id);
+        if (!record || !record->alive()) { setMessage("The dead cannot return to the active party."); return; }
+        auto members = party_.members();
+        if (record->status == CharacterStatus::Reserve) {
+            if (party_.full()) {
+                pendingReserveId_ = id;
+                setMessage("Choose an active character to move into Reserve.");
+                return;
+            }
+            members.push_back(id);
+        } else if (record->status == CharacterStatus::Active) {
+            if (pendingReserveId_ != InvalidCharacterId) {
+                const auto slot = std::find(members.begin(), members.end(), id);
+                if (slot == members.end()) return;
+                *slot = pendingReserveId_;
+                pendingReserveId_ = InvalidCharacterId;
+            } else {
+                if (members.size() <= 1) { setMessage("At least one living character must remain active."); return; }
+                members.erase(std::remove(members.begin(), members.end(), id), members.end());
+            }
+        } else return;
+        Roster candidateRoster = roster_;
+        Party candidateParty = party_;
+        if (!candidateRoster.setActiveParty(members) || !candidateParty.setMembers(members)) {
+            setMessage("That party change is not valid."); return;
+        }
+        roster_ = std::move(candidateRoster);
+        party_ = std::move(candidateParty);
+        setMessage("Active party updated. Health and progression were preserved.");
+    };
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE)) choose(visible[static_cast<std::size_t>(managementCursor_)]);
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        const auto mouse = GetMousePosition();
+        constexpr int visibleRows = 6;
+        const int first = std::clamp(managementCursor_ - 2, 0,
+                                     std::max(0, static_cast<int>(visible.size()) - visibleRows));
+        for (int i = 0; i < std::min(visibleRows, static_cast<int>(visible.size()) - first); ++i) {
+            const Rectangle card{260, 175.0f + i * 62.0f, 760, 52};
+            if (CheckCollisionPointRec(mouse, card)) {
+                managementCursor_ = first + i;
+                choose(visible[static_cast<std::size_t>(managementCursor_)]);
+                break;
+            }
+        }
+    }
+}
+
 void Game::updatePlaying(float dt) {
     if (IsKeyPressed(KEY_ESCAPE)) {
         audio_.play(AudioCue::UiBack);
@@ -592,6 +696,10 @@ void Game::updatePlaying(float dt) {
             load();
         }
     }
+
+    // Interactions may open a modal game screen. Do not let enemies take a
+    // hidden turn on the same frame that the party-management screen opens.
+    if (mode_ != Mode::Playing) return;
 
     const auto enemyEvent = combat_.updateEnemies(dt, roster_, party_, dungeon_, player_);
     if (enemyEvent.occurred()) setMessage(enemyEvent.message, enemyEvent.messageSeconds);
@@ -692,7 +800,7 @@ void Game::drinkPotion() {
     float lowestRatio = 1.0f;
     for (const auto id : party_.members()) {
         const auto* record = roster_.find(id);
-        const auto* definition = findCharacterDefinition(id);
+        const auto* definition = roster_.definition(id);
         if (record == nullptr || definition == nullptr || !record->alive()) continue;
         const float ratio = static_cast<float>(record->hp) / definition->maxHp;
         if (ratio < lowestRatio) {
@@ -707,7 +815,7 @@ void Game::drinkPotion() {
     }
     roster_.heal(targetId, 18);
     --potions_;
-    setMessage(findCharacterDefinition(targetId)->name + " drinks a healing draught.");
+    setMessage(roster_.definition(targetId)->name + " drinks a healing draught.");
     audio_.play(AudioCue::Heal);
 }
 
@@ -742,6 +850,15 @@ EventFireResult Game::fireEvent(const EventContext& context) {
     };
     presentation.cue = [this](WorldEventCue cue) {
         audio_.play(cue == WorldEventCue::DoorOpened ? AudioCue::DoorOpen : AudioCue::DoorLocked);
+    };
+    presentation.recruit = [this](CharacterId id) {
+        const auto* definition = roster_.definition(id);
+        return definition && definition->recruitable && roster_.recruit(id);
+    };
+    presentation.openPartyManagement = [this]() {
+        managementCursor_ = 0;
+        pendingReserveId_ = InvalidCharacterId;
+        enterMode(Mode::PartyManagement);
     };
     return dispatchWorldEvent(events_, context, dungeon_, keys_, presentation);
 }
@@ -793,6 +910,7 @@ void Game::draw() const {
     ClearBackground(Color{15, 16, 18, 255});
     if (mode_ == Mode::Title) drawTitle();
     else if (mode_ == Mode::NewGame) drawNewGame();
+    else if (mode_ == Mode::PartyManagement) drawPartyManagement();
     else if (mode_ == Mode::Victory) drawEndScreen(true);
     else if (mode_ == Mode::Defeat) drawEndScreen(false);
     else if (mode_ == Mode::Editor && editor_ != nullptr) editor_->draw();
@@ -859,6 +977,8 @@ void Game::drawWorld() const {
             else if (visibleObject->kind == WorldObjectKind::Note) { body = {190, 164, 102, 255}; glyph = "N"; }
             else if (visibleObject->kind == WorldObjectKind::Corpse) { body = {89, 75, 72, 255}; glyph = "C"; }
             else if (visibleObject->kind == WorldObjectKind::Npc) { body = {76, 105, 126, 255}; glyph = "@"; }
+            else if (visibleObject->kind == WorldObjectKind::Recruit) { body = {80, 128, 99, 255}; glyph = "+"; }
+            else if (visibleObject->kind == WorldObjectKind::PartyManagement) { body = {146, 116, 58, 255}; glyph = "M"; }
             DrawRectangle(cx - size / 2, cy - size, size, size, body);
             DrawRectangleLines(cx - size / 2, cy - size, size, size, Color{220, 193, 134, 255});
             const int glyphSize = std::max(24, size / 2);
@@ -884,7 +1004,7 @@ void Game::drawHud() const {
     const int cardStep = compactCards ? 56 : 104;
     for (const auto id : party_.members()) {
         const auto* record = roster_.find(id);
-        const auto* definition = findCharacterDefinition(id);
+        const auto* definition = roster_.definition(id);
         if (record == nullptr || definition == nullptr) continue;
         DrawRectangle(panelX, y, 272, cardHeight, Color{27, 29, 32, 255});
         DrawRectangleLines(panelX, y, 272, cardHeight, Color{91, 83, 65, 255});
@@ -902,7 +1022,7 @@ void Game::drawHud() const {
 
     {
         const auto& pick = combat_.lastMeleeTarget();
-        const auto* targetDefinition = findCharacterDefinition(pick.target);
+        const auto* targetDefinition = roster_.definition(pick.target);
         const int debugY = y + 2;
         if (!runtimeOnly_) {
         DrawText(TextFormat("TARGETING  %s  (n=%d)",
@@ -974,12 +1094,12 @@ void Game::drawTitle() const {
 }
 
 void Game::drawNewGame() const {
-    const auto starters = starterCharacterIds();
+    const auto starters = roster_.starterIds();
     DrawText("CHOOSE WHO DESCENDS", 372, 62, 42, Color{220, 193, 134, 255});
     DrawText("Select one, two, or all three. Death will be permanent.", 339, 122, 20, LIGHTGRAY);
 
     for (size_t i = 0; i < starters.size(); ++i) {
-        const auto* definition = findCharacterDefinition(starters[i]);
+        const auto* definition = roster_.definition(starters[i]);
         if (definition == nullptr) continue;
         const Rectangle card = starterCardRectangle(static_cast<int>(i));
         const bool selected = std::find(selectedStarters_.begin(), selectedStarters_.end(), starters[i]) != selectedStarters_.end();
@@ -1009,6 +1129,45 @@ void Game::drawNewGame() const {
     } else {
         DrawText(TextFormat("ENTER  begin with %d    ESC  back", static_cast<int>(selectedStarters_.size())), 456, 640, 20, RAYWHITE);
     }
+}
+
+void Game::drawPartyManagement() const {
+    DrawText("PARTY MANAGEMENT", 380, 75, 38, Color{211, 187, 126, 255});
+    DrawText("Choose who travels in Party Space. Reserve members add no combat power.", 275, 126, 18, LIGHTGRAY);
+    std::vector<const CharacterRecord*> visible;
+    for (const auto& record : roster_.records()) {
+        if (record.status != CharacterStatus::Unrecruited) visible.push_back(&record);
+    }
+    constexpr int visibleRows = 6;
+    const int first = std::clamp(managementCursor_ - 2, 0,
+                                 std::max(0, static_cast<int>(visible.size()) - visibleRows));
+    const int count = std::min(visibleRows, static_cast<int>(visible.size()) - first);
+    for (int row = 0; row < count; ++row) {
+        const auto& record = *visible[static_cast<std::size_t>(first + row)];
+        const auto* definition = roster_.definition(record.id);
+        if (!definition) continue;
+        const Rectangle card{260, 175.0f + row * 62.0f, 760, 52};
+        const bool selected = first + row == managementCursor_;
+        DrawRectangleRec(card, selected ? Color{76, 62, 37, 255} : Color{30, 32, 36, 255});
+        DrawRectangleLinesEx(card, 1, selected ? Color{211, 187, 126, 255} : Color{80, 82, 87, 255});
+        DrawText(definition->name.c_str(), 280, static_cast<int>(card.y) + 9, 20, RAYWHITE);
+        const char* state = record.status == CharacterStatus::Active ? "ACTIVE" :
+            (record.status == CharacterStatus::Reserve ? "RESERVE" : "PERMANENTLY DEAD");
+        DrawText(TextFormat("%s   HP %d / %d   XP %d", state, record.hp, definition->maxHp, record.xp),
+                 560, static_cast<int>(card.y) + 14, 16,
+                 record.status == CharacterStatus::Dead ? Color{170, 66, 64, 255} :
+                 (record.status == CharacterStatus::Active ? Color{160, 210, 150, 255} : LIGHTGRAY));
+    }
+    if (visible.size() > visibleRows)
+        DrawText(TextFormat("ROSTER %d-%d OF %d", first + 1, first + count, static_cast<int>(visible.size())),
+                 260, 552, 14, GRAY);
+    if (pendingReserveId_ != InvalidCharacterId) {
+        const auto* pending = roster_.definition(pendingReserveId_);
+        DrawText(TextFormat("ADDING %s: choose an ACTIVE member to replace.", pending ? pending->name.c_str() : "RECRUIT"),
+                 325, 575, 18, Color{211, 187, 126, 255});
+    }
+    DrawText("UP/DOWN + ENTER or click: activate / reserve / swap", 350, 615, 18, LIGHTGRAY);
+    DrawText("ESC: return to dungeon", 510, 650, 17, GRAY);
 }
 
 void Game::drawEndScreen(bool won) const {

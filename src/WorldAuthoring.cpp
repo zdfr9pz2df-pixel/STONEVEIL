@@ -26,6 +26,8 @@ const char* worldObjectKindName(WorldObjectKind kind) {
         case WorldObjectKind::Note: return "NOTE";
         case WorldObjectKind::Corpse: return "CORPSE";
         case WorldObjectKind::Npc: return "NPC";
+        case WorldObjectKind::Recruit: return "RECRUIT";
+        case WorldObjectKind::PartyManagement: return "PARTY_MANAGEMENT";
     }
     return "PROP";
 }
@@ -36,6 +38,8 @@ bool parseWorldObjectKind(const std::string& value, WorldObjectKind& kind) {
     else if (value == "NOTE") kind = WorldObjectKind::Note;
     else if (value == "CORPSE") kind = WorldObjectKind::Corpse;
     else if (value == "NPC") kind = WorldObjectKind::Npc;
+    else if (value == "RECRUIT") kind = WorldObjectKind::Recruit;
+    else if (value == "PARTY_MANAGEMENT") kind = WorldObjectKind::PartyManagement;
     else return false;
     return true;
 }

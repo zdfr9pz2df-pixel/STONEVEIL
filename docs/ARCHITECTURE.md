@@ -12,7 +12,7 @@ One executable, three entry modes, selected in `src/main.cpp`:
 | --- | --- |
 | `stoneveil.exe` | `Game::run()` — title, party select, gameplay, editor |
 | `stoneveil.exe --validate <level.svl>` | Headless level validation. No window, no raylib init. Used by CTest. |
-| `stoneveil.exe --capture-ui <dir>` | Hidden-window screenshots of title, editor, lighting-debug, and gameplay screens |
+| `stoneveil.exe --capture-ui <dir>` | Hidden-window screenshots of title, editor/object/story/light views, Character Creator, gameplay, and Party Management |
 
 The dungeon editor is a **mode of the game**, not a second program (`Game::Mode::Editor`). It shares
 the level file, the material and light catalogs, and the runtime `Dungeon`. Keep it that way — the
@@ -48,7 +48,9 @@ Nothing below depends on `Game`. `Game` depends on all of it.
 
 - `Character` — `CharacterId` (stable `uint32_t`, 1001–1003 for starters), `CharacterDefinition`
   (the catalog: name, role, maxHp, power), `CharacterRecord` (the mutable per-run state: hp, xp,
-  status). Definitions are compile-time data; records are save data. Keep that split.
+  status). Built-in definitions are fallback data; a project may provide the
+  versioned `content/characters/characters.svc` catalog. Records remain save
+  data. Keep that definition/state split.
 - `Roster` — every character that exists, with status `Unrecruited → Reserve → Active`, plus `Dead`,
   which is terminal. Owns damage/heal and permanent death. Independent of party capacity.
 - `Party` — who is currently in the field. Capacity starts at 3, caps at 3 (`MaximumCapacity`).
@@ -155,12 +157,15 @@ disabled during a playtest, deliberately — see `Game::editorPlaytest_`.
 
 **Format versions**
 
-- `.svl` is at **version 6**. Version 1 still loads; saving always writes the current version.
+- `.svl` is at **version 7**. Versions 1–6 still load; saving always writes the current version.
   Backward loading is a non-regression requirement. Versions 3–5 added enemy archetypes, water, and
   music. Version 6 adds stable pickup/enemy/door IDs, door lock/gate metadata, world objects, story
-  rooms, and triggers. Older levels receive deterministic legacy IDs and locked-door metadata in memory.
+  rooms, and triggers. Version 7 adds stable character references for recruit objects. Older levels
+  receive deterministic legacy IDs and locked-door metadata in memory.
 - `.campaign` is at **version 1** and lists stable level IDs, display names, a starting level, and safe
   relative level paths. The title screen can cycle registered levels without recompilation.
+- `.svc` character catalogs are at **version 1**. They are project definitions,
+  exported with the game, and are not embedded in player saves.
 - `.sav` is at **version 5**, with readers for 2–4 and the pre-versioned layout. Version 5 stores stable enemy/pickup IDs and event fired-counts; see `SAVE_MIGRATIONS.md`. `SaveSystem::load`
   copies the caller's `Dungeon` and overwrites tiles, pickups and enemies — so anything that is
   *authored* level data (materials, lights, dimensions) survives a load without touching the save

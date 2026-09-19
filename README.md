@@ -13,7 +13,9 @@ STONEVEIL is a systems-first C++ dungeon crawler prototype inspired by the feel 
 - Stable character IDs, data-driven character definitions, an uncapped reserve roster, and a progression-ready active party
 - Maximum active-party size is 3; additional recruited characters live in Reserve
 - Dynamic 1–3 character gameplay HUD
-- Permanent character death state and a recruitment-ready roster API
+- Project Character Creator with stable IDs, starter/recruit flags, stats, traits, and recruitment text
+- Recruit objects and generic Party Management points backed by the shared event runtime
+- Permanent character death state and a save-backed active/reserve roster
 - Real-time cooldown melee combat
 - Enemy pursuit and attacks
 - Healing draught pickups/consumption
@@ -23,7 +25,8 @@ STONEVEIL is a systems-first C++ dungeon crawler prototype inspired by the feel 
 - Windows CI build, core tests, and downloadable playtest artifact
 - Versioned external level files shared by the game and editor
 - Integrated dungeon editor for structure, wall, floor, ceiling, and light painting
-- Object layer for enemies, pickups, doors/locks, gates, props, shrines, notes, corpses, and NPCs
+- Object layer for enemies, pickups, doors/locks, gates, props, shrines, notes, corpses, NPCs,
+  recruit interactions, and party-management points
 - Story rooms with names, purpose, mood, lore notes, and intended feeling
 - Event triggers for room/cell entry, doors, kills, pickups, and object interaction
 - In-editor text tools for notes, inscriptions, dialogue, room lore, and discovery messages
@@ -95,7 +98,7 @@ On the title screen, use the `<` / `>` buttons or `[` / `]` keys to choose any l
 `content/campaigns/stoneveil.campaign` before starting a new game or opening the editor.
 
 On the Object layer, choose a brush and click the map. Notes, inscriptions, shrines, corpses, props,
-and NPCs can be selected and given interaction text. On Story, click two corners to draw a room,
+NPCs, recruits, and party-management points can be selected and given interaction text. On Story, click two corners to draw a room,
 then edit its story purpose and intended feeling. On Event, choose the event type, click its authored
 subject or cell, and edit the message that appears during playtesting.
 

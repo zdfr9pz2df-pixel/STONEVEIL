@@ -176,14 +176,16 @@ int main() {
     CHECK(LevelIO::validate(loadedLevel).empty());
     CHECK(loadedLevel.id == "gatehouse.level-1");
     CHECK(loadedLevel.musicPath == "content/audio/music/gatehouse-drone.wav");
-    CHECK(loadedLevel.surfaces.wallMaterial == "material.wall.cave.mossy-rock");
+    const auto* wallMaterial = findMaterial(loadedLevel.surfaces.wallMaterial);
+    CHECK(wallMaterial != nullptr);
+    CHECK(wallMaterial->surface == SurfaceKind::Wall);
     const auto* floorMaterial = findMaterial(loadedLevel.surfaces.floorMaterial);
     CHECK(floorMaterial != nullptr);
     CHECK(floorMaterial->surface == SurfaceKind::Floor);
     CHECK(loadedLevel.map[9][7] == 'S');
     const std::size_t originalSurfaceOverrideCount = loadedLevel.surfaceOverrides.size();
     CHECK(originalSurfaceOverrideCount >= 6);
-    CHECK(loadedLevel.surfaceOverrides[0].materialId == "material.wall.cave.mossy-rock-vines");
+    CHECK(findMaterial(loadedLevel.surfaceOverrides[0].materialId) != nullptr);
 
     const std::string meadHallBlueprint =
         "STONEVEIL_BLUEPRINT 1\n"

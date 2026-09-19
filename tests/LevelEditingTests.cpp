@@ -1,6 +1,7 @@
 #include "LevelEditing.hpp"
 #include "LevelDocument.hpp"
 #include "LevelIO.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 
@@ -20,9 +21,12 @@ int main() {
     level.triggers.push_back({"event.cell", TriggerEvent::EnterCell, 4, 4, "", true, "Here"});
     CHECK(LevelIO::validate(level).empty());
     auto selections = LevelEditing::at(level, 4, 4);
-    CHECK(selections.size() == 2 && selections[0].kind == SelectionKind::Object && selections[1].kind == SelectionKind::Light);
-    auto note = selections[0];
-    auto light = selections[1];
+    CHECK(selections.size() == 5);
+    const auto selected = [&](SelectionKind kind) {
+        return *std::find_if(selections.begin(), selections.end(), [&](const auto& value) { return value.kind == kind; });
+    };
+    auto note = selected(SelectionKind::Object);
+    auto light = selected(SelectionKind::Light);
     std::string error;
     CHECK(!LevelEditing::move(level, note, 5, 4, error));
     CHECK(!LevelEditing::move(level, note, 0, 0, error));
@@ -73,6 +77,22 @@ int main() {
     CHECK(LevelEditing::move(level, guard, 7, 7, error));
     CHECK(level.enemies[0].id == "enemy.guard" && level.triggers.back().x == 7);
     CHECK(!LevelEditing::erase(level, guard, error));
+    level.rooms.push_back({"room.hall", 2, 8, 3, 2, "Hall", "", "", "", ""});
+    level.triggers.push_back({"event.room", TriggerEvent::EnterRoom, 3, 8, "room.hall", true, "Entered"});
+    const auto roomChoices = LevelEditing::at(level, 2, 8);
+    auto room = *std::find_if(roomChoices.begin(), roomChoices.end(),
+        [](const auto& selection) { return selection.kind == SelectionKind::Room; });
+    CHECK(LevelEditing::move(level, room, 5, 9, error));
+    CHECK(level.rooms.back().x == 5 && level.rooms.back().y == 9);
+    CHECK(level.triggers.back().x == 6 && level.triggers.back().y == 9);
+    CHECK(LevelEditing::resizeRoom(level, room, 2, 1, error));
+    CHECK(level.rooms.back().width == 5 && level.rooms.back().height == 3);
+    CHECK(!LevelEditing::erase(level, room, error));
+    LevelSelection locationTrigger{SelectionKind::Trigger, "event.cell", 4, 4};
+    CHECK(LevelEditing::move(level, locationTrigger, 3, 5, error));
+    CHECK(level.triggers[2].x == 3 && level.triggers[2].y == 5);
+    LevelSelection boundTrigger{SelectionKind::Trigger, "event.note", 4, 6};
+    CHECK(!LevelEditing::move(level, boundTrigger, 2, 2, error));
     CHECK(LevelIO::validate(level).empty());
     return 0;
 }

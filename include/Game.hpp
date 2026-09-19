@@ -29,7 +29,7 @@ public:
     bool captureUiSnapshots(const std::string& outputDirectory);
 
 private:
-    enum class Mode { Title, NewGame, Playing, Victory, Defeat, Editor };
+    enum class Mode { Title, NewGame, Playing, PartyManagement, Victory, Defeat, Editor };
 
     void resetWorld();
     void resetWorld(const LevelDefinition& level);
@@ -47,11 +47,13 @@ private:
     void update(float dt);
     void updateNewGame();
     void updatePlaying(float dt);
+    void updatePartyManagement();
     void draw() const;
     void drawWorld() const;
     void drawHud() const;
     void drawTitle() const;
     void drawNewGame() const;
+    void drawPartyManagement() const;
     void drawEndScreen(bool won) const;
 
     void move(int forward, int strafe);
@@ -86,6 +88,8 @@ private:
     bool quitRequested_{false};
     std::vector<CharacterId> selectedStarters_{};
     int starterCursor_{0};
+    int managementCursor_{0};
+    CharacterId pendingReserveId_{InvalidCharacterId};
     int keys_{0};
     int potions_{1};
     int xp_{0};
