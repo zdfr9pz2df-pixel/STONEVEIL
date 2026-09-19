@@ -138,6 +138,10 @@ void Game::resetWorld(const LevelDefinition& level) {
 
 void Game::selectCampaignLevel(int delta) {
     if (campaign_.levels.empty()) return;
+    if (editor_ && editor_->hasUnsavedChanges()) {
+        openEditor();
+        return;
+    }
     const int count = static_cast<int>(campaign_.levels.size());
     campaignLevelIndex_ = (campaignLevelIndex_ + delta + count) % count;
     levelPath_ = resolveContentPath(campaign_.levels[static_cast<std::size_t>(campaignLevelIndex_)].path);
@@ -163,7 +167,7 @@ void Game::beginNewGame() {
         enterMode(Mode::Title);
         return;
     }
-    setMessage("The chosen descend into the Gatehouse.", 3.0f);
+    setMessage("The chosen enter " + dungeon_.name() + ".", 3.0f);
     audio_.play(AudioCue::UiConfirm);
     enterMode(Mode::Playing);
 }
@@ -214,13 +218,22 @@ void Game::debugSetPartySize(int size) {
 }
 
 void Game::run() {
-    while (!WindowShouldClose() && !quitRequested_) {
+    while (!quitRequested_) {
+        if (WindowShouldClose()) requestQuit();
+        if (quitRequested_) break;
         update(GetFrameTime());
         audio_.update();
         draw();
     }
     audio_.shutdown();
     CloseWindow();
+}
+
+void Game::requestQuit() {
+    if (editor_ && editor_->hasUnsavedChanges()) {
+        enterMode(Mode::Editor);
+        editor_->requestQuit();
+    } else quitRequested_ = true;
 }
 
 bool Game::captureUiSnapshots(const std::string& outputDirectory) {
@@ -342,7 +355,7 @@ void Game::update(float dt) {
     if (mode_ == Mode::Title) {
         if (IsKeyPressed(KEY_ESCAPE)) {
             audio_.play(AudioCue::UiBack);
-            quitRequested_ = true;
+            requestQuit();
             return;
         }
         if (IsKeyPressed(KEY_ENTER)) {
@@ -380,7 +393,7 @@ void Game::update(float dt) {
                 openEditor();
             } else if (CheckCollisionPointRec(mouse, titleButtonRectangle(3))) {
                 audio_.play(AudioCue::UiBack);
-                quitRequested_ = true;
+                requestQuit();
             }
         }
         return;
@@ -392,7 +405,10 @@ void Game::update(float dt) {
             return;
         }
         editor_->update();
+        if (editor_->consumeQuitRequest()) { quitRequested_ = true; return; }
         if (editor_->consumeExitRequest()) {
+            // A dirty Exit can only arrive after explicit Discard confirmation.
+            if (editor_->hasUnsavedChanges()) editor_ = std::make_unique<LevelEditor>(levelPath_);
             audio_.play(AudioCue::UiBack);
             enterMode(Mode::Title);
         }

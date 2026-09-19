@@ -485,9 +485,11 @@ void drawPreviewLightVisibility(const Dungeon& dungeon,
 }
 
 LevelEditor::LevelEditor(std::string levelPath)
-    : levelPath_(std::move(levelPath)),
+    : levelDirectory_(std::filesystem::path{levelPath}.parent_path().string()),
       randomizer_(std::random_device{}()) {
-    loadLevel();
+    syncSelectionsFromLevel();
+    validationErrors_ = LevelIO::validate(level_);
+    loadLevel(levelPath);
 }
 
 bool LevelEditor::consumePlaytestRequest() {
@@ -502,6 +504,17 @@ bool LevelEditor::consumeExitRequest() {
     return requested;
 }
 
+void LevelEditor::requestQuit() {
+    if (textField_ != TextField::None) finishTextEdit();
+    requestDestructiveAction(PendingAction::Quit);
+}
+
+bool LevelEditor::consumeQuitRequest() {
+    const bool requested = quitRequested_;
+    quitRequested_ = false;
+    return requested;
+}
+
 void LevelEditor::showLightsLayerForCapture() {
     setLayer(Layer::Lights);
 }
@@ -511,95 +524,50 @@ void LevelEditor::showStoryLayerForCapture() {
     if (!level_.rooms.empty()) selectedRoomIndex_ = 0;
 }
 
-void LevelEditor::loadLevel() {
+void LevelEditor::loadLevel(const std::string& path) {
     std::string error;
-    LevelDefinition loaded;
-    if (LevelIO::load(levelPath_, loaded, error)) {
-        level_ = std::move(loaded);
-        dirty_ = false;
-        status_ = "Loaded " + level_.name;
-    } else {
-        level_ = levelOneDefinition();
-        dirty_ = true;
-        status_ = "Load failed; using the built-in template. " + error;
+    const auto source = path.empty() ? document_.path() : path;
+    if (source.empty()) {
+        status_ = "This new level has no file to reload. Save it first.";
+        return;
     }
+    if (!document_.open(source, error)) {
+        status_ = "Load failed; draft kept intact. " + error;
+        return;
+    }
+    levelDirectory_ = std::filesystem::path{source}.parent_path().string();
     syncSelectionsFromLevel();
     validationErrors_ = LevelIO::validate(level_);
-    undoStack_.clear();
-    redoStack_.clear();
-    selectedObjectIndex_ = -1;
-    selectedRoomIndex_ = -1;
-    selectedTriggerIndex_ = -1;
+    selectedObjectIndex_ = selectedRoomIndex_ = selectedTriggerIndex_ = -1;
+    roomAnchorX_ = roomAnchorY_ = -1;
+    status_ = "Loaded " + level_.name;
 }
 
 void LevelEditor::saveLevel() {
+    if (document_.path().empty()) { saveLevelAs(); return; }
     validationErrors_ = LevelIO::validate(level_);
-    if (!validationErrors_.empty()) {
-        status_ = "Not saved: " + validationErrors_.front();
-        return;
-    }
     std::string error;
-    if (!LevelIO::save(levelPath_, level_, error)) {
-        status_ = "Save failed: " + error;
-        return;
-    }
-    dirty_ = false;
-    status_ = "Saved. The game will load this level on its next launch.";
+    if (!document_.save(error)) { status_ = "Not saved: " + error; return; }
+    status_ = "Saved " + document_.path();
 }
 
 void LevelEditor::saveLevelAs() {
-    std::filesystem::path directory = std::filesystem::path{levelPath_}.parent_path();
-    std::string stem = level_.id.empty() ? "new-level" : level_.id;
-    std::replace_if(stem.begin(), stem.end(), [](unsigned char ch) {
-        return !std::isalnum(ch) && ch != '-' && ch != '_';
-    }, '-');
-    if (stem.empty()) stem = "new-level";
-    std::filesystem::path candidate = directory / (stem + ".svl");
-    int suffix = 2;
-    std::error_code errorCode;
-    while (std::filesystem::exists(candidate, errorCode)) {
-        candidate = directory / (stem + "-" + std::to_string(suffix++) + ".svl");
-        errorCode.clear();
-    }
-    const std::string previous = levelPath_;
-    levelPath_ = candidate.string();
-    saveLevel();
-    if (dirty_) {
-        levelPath_ = previous;
-    } else {
-        status_ = "Saved copy as " + candidate.filename().string() + ".";
-    }
+    std::string error;
+    if (!document_.saveCopy(levelDirectory_, error)) { status_ = "Not saved: " + error; return; }
+    status_ = "Saved new level " + level_.id + ". Register it in the campaign to play outside the editor.";
+    validationErrors_ = LevelIO::validate(level_);
 }
 
 void LevelEditor::newLevel() {
-    recordUndo();
-    LevelDefinition fresh;
-    fresh.id = "level.new";
-    fresh.name = "NEW STORY LEVEL";
-    fresh.width = 16;
-    fresh.height = 16;
-    fresh.map.assign(16, std::string(16, '.'));
-    std::fill(fresh.map.front().begin(), fresh.map.front().end(), '#');
-    std::fill(fresh.map.back().begin(), fresh.map.back().end(), '#');
-    for (auto& row : fresh.map) {
-        row.front() = '#';
-        row.back() = '#';
-    }
-    fresh.spawnX = 2;
-    fresh.spawnY = 2;
-    fresh.spawnDirection = 1;
-    fresh.map[13][13] = 'E';
-    level_ = std::move(fresh);
+    document_.replaceUntitled(LevelDocument::newLevel());
     syncSelectionsFromLevel();
-    selectedObjectIndex_ = -1;
-    selectedRoomIndex_ = -1;
-    selectedTriggerIndex_ = -1;
-    dirty_ = true;
-    refreshValidation("New level created. Edit its ID/name, then use Save As.");
+    selectedObjectIndex_ = selectedRoomIndex_ = selectedTriggerIndex_ = -1;
+    roomAnchorX_ = roomAnchorY_ = -1;
+    refreshValidation("New untitled level. Save creates a new file; the previous level is untouched.");
 }
 
 void LevelEditor::requestDestructiveAction(PendingAction action) {
-    if (!dirty_) {
+    if (!document_.dirty()) {
         pendingAction_ = action;
         completePendingAction();
         return;
@@ -614,36 +582,25 @@ void LevelEditor::completePendingAction() {
     if (action == PendingAction::Exit) exitRequested_ = true;
     else if (action == PendingAction::Reload) loadLevel();
     else if (action == PendingAction::NewLevel) newLevel();
+    else if (action == PendingAction::Quit) quitRequested_ = true;
 }
 
 void LevelEditor::recordUndo() {
-    undoStack_.push_back(level_);
-    if (undoStack_.size() > 64) undoStack_.erase(undoStack_.begin());
-    redoStack_.clear();
+    document_.beginEdit();
 }
 
 void LevelEditor::undo() {
-    if (undoStack_.empty()) {
-        status_ = "Nothing to undo.";
-        return;
-    }
-    redoStack_.push_back(level_);
-    level_ = std::move(undoStack_.back());
-    undoStack_.pop_back();
-    dirty_ = true;
+    if (!document_.undo()) { status_ = "Nothing to undo."; return; }
+    selectedObjectIndex_ = selectedRoomIndex_ = selectedTriggerIndex_ = -1;
+    roomAnchorX_ = roomAnchorY_ = -1;
     syncSelectionsFromLevel();
     refreshValidation("Undo.");
 }
 
 void LevelEditor::redo() {
-    if (redoStack_.empty()) {
-        status_ = "Nothing to redo.";
-        return;
-    }
-    undoStack_.push_back(level_);
-    level_ = std::move(redoStack_.back());
-    redoStack_.pop_back();
-    dirty_ = true;
+    if (!document_.redo()) { status_ = "Nothing to redo."; return; }
+    selectedObjectIndex_ = selectedRoomIndex_ = selectedTriggerIndex_ = -1;
+    roomAnchorX_ = roomAnchorY_ = -1;
     syncSelectionsFromLevel();
     refreshValidation("Redo.");
 }
@@ -679,7 +636,6 @@ void LevelEditor::beginTextEdit(TextField field) {
 
 void LevelEditor::finishTextEdit() {
     textField_ = TextField::None;
-    dirty_ = true;
     refreshValidation("Text updated.");
 }
 
@@ -699,7 +655,6 @@ void LevelEditor::updateTextEdit() {
             value->push_back(static_cast<char>(codepoint));
         }
     }
-    dirty_ = true;
 }
 
 void LevelEditor::refreshValidation(const std::string& successMessage) {
@@ -783,7 +738,6 @@ void LevelEditor::paintStructure(int x, int y) {
         recordUndo();
         level_.spawnX = x;
         level_.spawnY = y;
-        dirty_ = true;
         refreshValidation("Player spawn moved.");
         return;
     }
@@ -794,15 +748,14 @@ void LevelEditor::paintStructure(int x, int y) {
         return;
     }
 
+    auto& cell = level_.map[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)];
+    if (cell == marker) return;
+    recordUndo();
     if (marker == 'E') {
         for (auto& row : level_.map) {
             std::replace(row.begin(), row.end(), 'E', '.');
         }
     }
-
-    auto& cell = level_.map[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)];
-    if (cell == marker) return;
-    recordUndo();
     const char previousMarker = cell;
     cell = marker;
 
@@ -828,7 +781,6 @@ void LevelEditor::paintStructure(int x, int y) {
                                                 : surfaceOverride.surface == SurfaceKind::Wall;
                        }),
         level_.surfaceOverrides.end());
-    dirty_ = true;
     refreshValidation("Structure painted.");
 }
 
@@ -870,7 +822,6 @@ void LevelEditor::paintSurface(int x, int y, SurfaceKind surface) {
     } else {
         level_.surfaceOverrides.push_back({x, y, materialId, surface, mode});
     }
-    dirty_ = true;
     refreshValidation("Surface painted.");
 }
 
@@ -886,7 +837,6 @@ void LevelEditor::paintLight(int x, int y) {
         }
         recordUndo();
         level_.lights.erase(existing);
-        dirty_ = true;
         refreshValidation("Light removed.");
         return;
     }
@@ -908,7 +858,6 @@ void LevelEditor::paintLight(int x, int y) {
         recordUndo();
         level_.lights.push_back({x, y, selectedLightId_});
     }
-    dirty_ = true;
     refreshValidation("Placed " + definition->name + ".");
 }
 
@@ -947,7 +896,6 @@ void LevelEditor::paintObject(int x, int y) {
             level_.map[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] = '.';
         }
         selectedObjectIndex_ = -1;
-        dirty_ = true;
         refreshValidation("Object removed.");
         return;
     }
@@ -966,7 +914,6 @@ void LevelEditor::paintObject(int x, int y) {
         recordUndo();
         doorAt->kind = objectBrush_ == ObjectBrush::Gate ? DoorKind::Gate : DoorKind::Door;
         doorAt->locked = objectBrush_ != ObjectBrush::UnlockedDoor;
-        dirty_ = true;
         refreshValidation("Door or gate settings updated.");
         return;
     }
@@ -1018,7 +965,6 @@ void LevelEditor::paintObject(int x, int y) {
         level_.objects.push_back(std::move(object));
         selectedObjectIndex_ = static_cast<int>(level_.objects.size()) - 1;
     }
-    dirty_ = true;
     refreshValidation("Object placed.");
 }
 
@@ -1034,7 +980,6 @@ void LevelEditor::paintStory(int x, int y) {
         recordUndo();
         level_.rooms.erase(containing);
         selectedRoomIndex_ = -1;
-        dirty_ = true;
         refreshValidation("Story room removed.");
         return;
     }
@@ -1071,7 +1016,6 @@ void LevelEditor::paintStory(int x, int y) {
     selectedRoomIndex_ = static_cast<int>(level_.rooms.size()) - 1;
     roomAnchorX_ = -1;
     roomAnchorY_ = -1;
-    dirty_ = true;
     refreshValidation("Story room created. Give it a purpose before decorating it.");
 }
 
@@ -1087,7 +1031,6 @@ void LevelEditor::paintTrigger(int x, int y) {
         recordUndo();
         level_.triggers.erase(existing);
         selectedTriggerIndex_ = -1;
-        dirty_ = true;
         refreshValidation("Trigger removed.");
         return;
     }
@@ -1116,7 +1059,6 @@ void LevelEditor::paintTrigger(int x, int y) {
     recordUndo();
     level_.triggers.push_back(std::move(trigger));
     selectedTriggerIndex_ = static_cast<int>(level_.triggers.size()) - 1;
-    dirty_ = true;
     refreshValidation("Trigger placed. Write what the player discovers.");
 }
 
@@ -1139,7 +1081,6 @@ void LevelEditor::makeSelectionDefault() {
         level_.surfaces.ceilingMode = selectedCeilingSky_ ? CeilingMode::Sky : CeilingMode::Material;
         if (!selectedCeilingSky_) level_.surfaces.ceilingMaterial = selectedCeilingMaterial_;
     }
-    dirty_ = true;
     refreshValidation("Level default updated. Existing overrides were preserved.");
 }
 
@@ -1247,7 +1188,6 @@ void LevelEditor::randomizeSurfaces() {
         }
     }
 
-    dirty_ = true;
     refreshValidation("Randomized surfaces. Click Randomize again for a different mix.");
 }
 
@@ -1272,11 +1212,9 @@ void LevelEditor::importBlueprintFromClipboard() {
         return;
     }
 
-    recordUndo();
-    level_ = std::move(imported);
+    document_.replaceUntitled(std::move(imported));
     syncSelectionsFromLevel();
     validationErrors_ = LevelIO::validate(level_);
-    dirty_ = true;
     importPanelOpen_ = false;
     layer_ = Layer::Structure;
     status_ = "Imported blueprint: " + level_.name + ". Playtest or save when ready.";
@@ -1288,7 +1226,7 @@ void LevelEditor::importDroppedAudio() {
         UnloadDroppedFiles(dropped);
         return;
     }
-    const std::filesystem::path contentDirectory = std::filesystem::path{levelPath_}.parent_path().parent_path();
+    const std::filesystem::path contentDirectory = std::filesystem::path{levelDirectory_}.parent_path();
     const std::filesystem::path musicDirectory = contentDirectory / "audio" / "music";
     std::error_code error;
     std::filesystem::create_directories(musicDirectory, error);
@@ -1423,7 +1361,6 @@ void LevelEditor::resizeLevel(int widthDelta, int heightDelta) {
                                surfaceOverride.x >= newWidth - 1 || surfaceOverride.y >= newHeight - 1;
                        }),
         level_.surfaceOverrides.end());
-    dirty_ = true;
     refreshValidation("Level resized. New interior cells use the current defaults.");
 }
 
@@ -1449,7 +1386,7 @@ void LevelEditor::update() {
             completePendingAction();
         } else if (IsKeyPressed(KEY_S)) {
             saveLevel();
-            if (!dirty_) completePendingAction();
+            if (!document_.dirty()) completePendingAction();
         }
         return;
     }
@@ -1630,7 +1567,6 @@ void LevelEditor::update() {
             if (CheckCollisionPointRec(mouse, noMusicButton())) {
                 recordUndo();
                 level_.musicPath.clear();
-                dirty_ = true;
                 refreshValidation("Level music cleared.");
                 return;
             }
@@ -1638,7 +1574,6 @@ void LevelEditor::update() {
                 if (CheckCollisionPointRec(mouse, button.bounds)) {
                     recordUndo();
                     level_.musicPath = button.path;
-                    dirty_ = true;
                     refreshValidation("Selected music loop: " + button.label + ".");
                     return;
                 }
@@ -1674,7 +1609,8 @@ void LevelEditor::update() {
 
     const Rectangle map = mapBounds(level_);
     const float cellSize = mapCellSize(level_);
-    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, map)) {
+    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, map) &&
+        (layer_ != Layer::Story || IsMouseButtonPressed(MOUSE_BUTTON_LEFT))) {
         const int x = static_cast<int>((mouse.x - map.x) / cellSize);
         const int y = static_cast<int>((mouse.y - map.y) / cellSize);
         if (x != lastPaintX_ || y != lastPaintY_) {
@@ -1693,7 +1629,7 @@ void LevelEditor::draw() const {
     const Rectangle map = mapBounds(level_);
     const float cellSize = mapCellSize(level_);
     DrawText("STONEVEIL DUNGEON EDITOR", 32, 22, 26, Text);
-    DrawText(dirty_ ? "UNSAVED" : "SAVED", 472, 28, 14, dirty_ ? Accent : Valid);
+    DrawText(document_.dirty() ? "UNSAVED" : "SAVED", 472, 28, 14, document_.dirty() ? Accent : Valid);
     drawButton(undoButton(), "UNDO", false, 11);
     drawButton(redoButton(), "REDO", false, 11);
     drawButton(newButton(), "NEW", false, 11);

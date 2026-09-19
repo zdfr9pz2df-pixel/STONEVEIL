@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Dungeon.hpp"
+#include "LevelDocument.hpp"
 
 #include <random>
 #include <string>
@@ -19,6 +20,9 @@ public:
     void showStoryLayerForCapture();
     bool consumePlaytestRequest();
     bool consumeExitRequest();
+    bool hasUnsavedChanges() const { return document_.dirty(); }
+    void requestQuit();
+    bool consumeQuitRequest();
 
 private:
     enum class Layer {
@@ -73,9 +77,9 @@ private:
         TriggerMessage,
     };
 
-    enum class PendingAction { None, Exit, Reload, NewLevel };
+    enum class PendingAction { None, Exit, Reload, NewLevel, Quit };
 
-    void loadLevel();
+    void loadLevel(const std::string& path = {});
     void saveLevel();
     void saveLevelAs();
     void newLevel();
@@ -112,8 +116,12 @@ private:
     std::string& selectedMaterial();
     SurfaceKind selectedSurface() const;
 
-    std::string levelPath_;
-    LevelDefinition level_{levelOneDefinition()};
+    LevelDocument document_;
+    std::string levelDirectory_;
+    // Presentation aliases keep painting incremental; all identity/history
+    // operations belong to the testable document owner.
+    const std::string& levelPath_{document_.path()};
+    LevelDefinition& level_{document_.draft()};
     Layer layer_{Layer::Structure};
     StructureBrush structureBrush_{StructureBrush::Floor};
     ObjectBrush objectBrush_{ObjectBrush::Erase};
@@ -135,16 +143,14 @@ private:
     TextField textField_{TextField::None};
     PendingAction pendingAction_{PendingAction::None};
     std::string importStatus_;
-    bool dirty_{false};
     int lastPaintX_{-1};
     int lastPaintY_{-1};
     std::mt19937 randomizer_;
     bool playtestRequested_{false};
     bool exitRequested_{false};
+    bool quitRequested_{false};
     std::string status_;
     std::vector<std::string> validationErrors_;
-    std::vector<LevelDefinition> undoStack_;
-    std::vector<LevelDefinition> redoStack_;
 };
 
 } // namespace sv

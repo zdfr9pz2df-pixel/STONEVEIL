@@ -62,6 +62,9 @@ Nothing below depends on `Game`. `Game` depends on all of it.
 - `Material` / `Lighting` / `Portrait` — data catalogs (see below). `Portrait` also owns `PortraitTrack`,
   the pure priority resolver that turns character condition and events into a displayed state.
 - `LevelIO` — the versioned `.svl` text format: load, save, validate.
+- `LevelDocument` — editor draft, file identity, save points and bounded undo/redo
+  history. It is raylib-free and tested separately. New/imported drafts have no
+  file path; Save As creates a distinct level ID and never overwrites a sibling.
 - `LevelBlueprint` — a copy/paste import language for Codex-assisted level generation. It parses
   `STONEVEIL_BLUEPRINT 1` text into ordinary `LevelDefinition` data, resolves friendly material/light
   aliases to stable IDs, accepts water-volume commands, and validates through `LevelIO` before the
@@ -184,8 +187,9 @@ cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-raylib 5.5 is fetched by CMake on first configure. Four CTest cases: `stoneveil_core_tests` (the core
-checks), `stoneveil_event_tests`, `stoneveil_compatibility_tests`, and `stoneveil_editor_validate` (runs the real exe headlessly against the shipped level).
+raylib 5.5 is fetched by CMake on first configure. Five CTest cases: `stoneveil_core_tests` (the core
+checks), `stoneveil_event_tests`, `stoneveil_compatibility_tests`, `stoneveil_document_tests`, and
+`stoneveil_editor_validate` (runs the real exe headlessly against the shipped level).
 CI is `.github/workflows/windows-build.yml` and must keep uploading the `STONEVEIL-Windows-Playtest`
 artifact.
 

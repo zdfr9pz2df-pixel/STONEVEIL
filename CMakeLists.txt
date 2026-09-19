@@ -38,6 +38,7 @@ add_library(stoneveil_core STATIC
   src/EventSystem.cpp
   src/Formation.cpp
   src/LevelBlueprint.cpp
+  src/LevelDocument.cpp
   src/LevelOne.cpp
   src/LevelIO.cpp
   src/Lighting.cpp
@@ -85,6 +86,7 @@ if (BUILD_TESTING)
   stoneveil_test(stoneveil_core_tests tests/CoreTests.cpp)
   stoneveil_test(stoneveil_event_tests tests/EventSystemTests.cpp)
   stoneveil_test(stoneveil_compatibility_tests tests/CompatibilityTests.cpp)
+  stoneveil_test(stoneveil_document_tests tests/EditorDocumentTests.cpp)
   add_test(NAME stoneveil_editor_validate
            COMMAND stoneveil --validate "${CMAKE_SOURCE_DIR}/content/levels/gatehouse.svl")
 endif()

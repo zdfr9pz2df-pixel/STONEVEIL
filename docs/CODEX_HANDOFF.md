@@ -29,6 +29,10 @@ the current gated plan, verification evidence, and compatibility limitations.
 PR #1 event compilers/runtime were reconciled with this editor, not substituted
 for it. Existing triggers and doors now share the event runtime; story messages
 queue in order, and editor-only room mood/purpose are not emitted as dialogue.
+`LevelDocument` owns editor draft/path/history: New and blueprint imports are
+untitled, Save As creates a new identity, and undo/redo restores document identity
+and saved-state. Window close uses the unsaved-work confirmation. Windows
+integration CI is green; the current local suite has five CTest cases.
 
 STONEVEIL v0.4 is a playable Windows C++17/raylib dungeon-crawler slice with an integrated, story-first dungeon editor.
 
@@ -188,7 +192,7 @@ Keep the current 4–64 dimension safety range until larger-map performance and 
 
 ## Non-regression requirements
 
-- Keep the Release build and all four CTest cases green.
+- Keep the Release build and all five CTest cases green.
 - Preserve movement, collision, doors, combat, save/load compatibility, and the centered-eye raycaster.
 - Keep loading older level files; saving always upgrades them to the current version.
 - Keep the single executable and shared `content` folder in the downloadable Windows playtest.

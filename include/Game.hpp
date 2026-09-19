@@ -39,6 +39,7 @@ private:
     void toggleStarter(CharacterId id);
     void debugSetPartySize(int size);
     void selectCampaignLevel(int delta);
+    void requestQuit();
     bool fireStoryTrigger(TriggerEvent event, int x, int y, const std::string& subjectId = {});
     EventFireResult fireEvent(const EventContext& context);
     void update(float dt);

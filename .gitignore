@@ -8,3 +8,6 @@ cmake_install.cmake
 *.user
 stoneveil.sav
 Claude outputs/
+/light-debug-smoke/
+/lighting-smoke*/
+/texture-smoke*/
