@@ -2,6 +2,7 @@
 #include "Character.hpp"
 #include "LevelIO.hpp"
 #include "SaveSystem.hpp"
+#include "StoryState.hpp"
 #include "WorldEvents.hpp"
 
 #include <chrono>
@@ -62,10 +63,13 @@ int main() {
     EventRuntime underkeepEvents;
     CHECK(configureWorldEvents(underkeep, underkeepEvents));
     PlayerState player{2, 2, 1};
+    StoryState storyState;
+    CHECK(storyState.set("gatehouse.watch-order-read"));
+    CHECK(storyState.set("underkeep.elska-recruited"));
     const auto savePath = std::filesystem::current_path() /
         ("campaign-loop-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".sav");
     CHECK(SaveSystem::save(savePath.string(), player, roster, party, underkeep,
-                           keys, 4, 88, &underkeepEvents, &campaign));
+                           keys, 4, 88, &underkeepEvents, &campaign, &storyState));
 
     std::string savedLevel;
     CHECK(SaveSystem::savedLevelId(savePath.string(), savedLevel));
@@ -73,6 +77,7 @@ int main() {
     Dungeon loadedDungeon{underkeepDefinition};
     EventRuntime loadedEvents;
     CampaignState loadedCampaign;
+    StoryState loadedStoryState;
     Roster loadedRoster;
     CHECK(loadedRoster.setDefinitions(definitions));
     Party loadedParty;
@@ -80,13 +85,15 @@ int main() {
     int loadedKeys{}, loadedPotions{}, loadedXp{};
     CHECK(SaveSystem::load(savePath.string(), loadedPlayer, loadedRoster, loadedParty,
                            loadedDungeon, loadedKeys, loadedPotions, loadedXp,
-                           &loadedEvents, &loadedCampaign));
+                           &loadedEvents, &loadedCampaign, &loadedStoryState));
     CHECK(loadedDungeon.levelId() == "underkeep.level-1");
     CHECK(loadedParty.members() == std::vector<CharacterId>({1001, 1002, 2001}));
     CHECK(loadedRoster.find(1001)->hp == 33 && loadedRoster.find(1001)->xp == 17);
     CHECK(loadedRoster.find(2001)->status == CharacterStatus::Active && loadedRoster.find(2001)->xp == 6);
     CHECK(loadedRoster.find(1003)->status == CharacterStatus::Dead);
     CHECK(loadedKeys == 1 && loadedPotions == 4 && loadedXp == 88);
+    CHECK(loadedStoryState.value("gatehouse.watch-order-read"));
+    CHECK(loadedStoryState.value("underkeep.elska-recruited"));
 
     Dungeon restoredGatehouse{gatehouseDefinition};
     EventRuntime restoredGatehouseEvents;

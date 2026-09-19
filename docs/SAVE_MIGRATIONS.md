@@ -20,7 +20,11 @@ definition maximum without mutating the active game. Adding an unrecruited
 definition is compatible with an older save; removing or renumbering a character
 referenced by a save requires a future explicit project migration.
 
-Current writer: `STONEVEIL_SAVE 6`. Readers: pre-versioned, 2, 3, 4, 5, 6.
+Current writer: `STONEVEIL_SAVE 7`. Readers: pre-versioned, 2, 3, 4, 5, 6, 7.
+
+Version 7 adds `STORY_FLAGS`, a bounded collection of stable named boolean facts.
+Facts are campaign-wide and survive level transitions and reloads; level-local
+one-shot history remains in each level's event fired-counts.
 
 Version 6 adds `CAMPAIGN_STATES`: one stable-ID snapshot for every visited,
 inactive level. Each snapshot stores mutable tiles, pickups, enemies, and fired

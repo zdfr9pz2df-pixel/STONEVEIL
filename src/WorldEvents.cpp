@@ -55,10 +55,12 @@ bool configureWorldEvents(const Dungeon& dungeon, EventRuntime& runtime) {
 
 EventFireResult dispatchWorldEvent(EventRuntime& runtime, const EventContext& context,
                                    Dungeon& dungeon, int& campaignKeys,
-                                   const WorldEventPresentation& presentation) {
+                                   const WorldEventPresentation& presentation,
+                                   StoryState* storyState) {
     EventServices services;
     services.readFact = [&](const std::string& fact) -> EventValue {
         if (fact == "inventory.iron-key.count") return campaignKeys;
+        if (storyState && storyState->contains(fact)) return storyState->value(fact);
         for (const auto& door : dungeon.doors()) {
             if (fact == "door." + door.id + ".closed")
                 return dungeon.tile(door.x, door.y) == Tile::DoorClosed;
@@ -87,6 +89,12 @@ EventFireResult dispatchWorldEvent(EventRuntime& runtime, const EventContext& co
                 break;
             case EventActionType::SendSignal:
                 runtime.fire({EventTriggerType::Signal, current.x, current.y, action.targetId}, services);
+                break;
+            case EventActionType::SetFact:
+                if (storyState) {
+                    const auto* value = std::get_if<bool>(&action.value);
+                    if (value) storyState->set(action.targetId, *value);
+                }
                 break;
             case EventActionType::RecruitCharacter:
                 if (presentation.recruit && presentation.recruit(static_cast<CharacterId>(action.intValue))) {

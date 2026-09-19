@@ -13,7 +13,7 @@
 
 namespace sv {
 namespace {
-constexpr int CurrentSaveVersion = 6;
+constexpr int CurrentSaveVersion = 7;
 constexpr std::size_t MaxSavedEntities = 1024;
 
 bool readRosterAndParty(std::istream& input, Roster& roster, Party& party, int version) {
@@ -122,6 +122,21 @@ bool readCampaignSnapshots(std::istream& input, CampaignState& campaignState, co
     return campaignState.replaceSnapshots(std::move(snapshots));
 }
 
+bool readStoryState(std::istream& input, StoryState& storyState) {
+    std::string label;
+    std::size_t count{};
+    input >> label >> count;
+    if (!input || label != "STORY_FLAGS" || count > 4096) return false;
+    std::map<std::string, bool> facts;
+    for (std::size_t i = 0; i < count; ++i) {
+        std::string key;
+        int value{};
+        input >> std::quoted(key) >> value;
+        if (!input || (value != 0 && value != 1) || !facts.emplace(std::move(key), value != 0).second) return false;
+    }
+    return storyState.replace(std::move(facts));
+}
+
 void writeCampaignSnapshots(std::ostream& output, const CampaignState* campaignState) {
     const std::size_t count = campaignState == nullptr ? 0 : campaignState->snapshots().size();
     output << "CAMPAIGN_STATES " << count << '\n';
@@ -150,7 +165,7 @@ void writeCampaignSnapshots(std::ostream& output, const CampaignState* campaignS
 }
 
 bool readVersionThreeDungeon(std::istream& input, Dungeon& dungeon, int version, EventRuntime& events,
-                             CampaignState& campaignState) {
+                             CampaignState& campaignState, StoryState& storyState) {
     std::string label;
     std::string levelId;
     input >> label >> levelId;
@@ -240,6 +255,7 @@ bool readVersionThreeDungeon(std::istream& input, Dungeon& dungeon, int version,
         if (!events.restoreFiredCounts(counts)) return false;
     }
     if (version >= 6 && !readCampaignSnapshots(input, campaignState, dungeon.levelId())) return false;
+    if (version >= 7 && !readStoryState(input, storyState)) return false;
     input >> label;
     return input && label == "END";
 }
@@ -266,7 +282,8 @@ bool SaveSystem::save(const std::string& path,
                       int potions,
                       int xp,
                       const EventRuntime* events,
-                      const CampaignState* campaignState) {
+                      const CampaignState* campaignState,
+                      const StoryState* storyState) {
     Roster validatedRoster = roster;
     EventRuntime validatedEvents;
     if (keys < 0 || potions < 0 || xp < 0 || !validatedRoster.restore(roster.records()) ||
@@ -318,6 +335,9 @@ bool SaveSystem::save(const std::string& path,
     output << "EVENTS " << counts.size() << '\n';
     for (const auto& entry : counts) output << std::quoted(entry.first) << ' ' << entry.second << '\n';
     writeCampaignSnapshots(output, campaignState);
+    output << "STORY_FLAGS " << (storyState == nullptr ? 0 : storyState->facts().size()) << '\n';
+    if (storyState) for (const auto& fact : storyState->facts())
+        output << std::quoted(fact.first) << ' ' << fact.second << '\n';
     output << "END\n";
     std::string error;
     return output && writeFileAtomically(path, output.str(), error);
@@ -332,13 +352,15 @@ bool SaveSystem::load(const std::string& path,
                       int& potions,
                       int& xp,
                       EventRuntime* events,
-                      CampaignState* campaignState) {
+                      CampaignState* campaignState,
+                      StoryState* storyState) {
     std::ifstream input(path);
     if (!input) return false;
 
     Dungeon loadedDungeon = dungeon;
     EventRuntime loadedEvents;
     CampaignState loadedCampaignState;
+    StoryState loadedStoryState;
     if (!configureWorldEvents(loadedDungeon, loadedEvents)) return false;
     PlayerState loadedPlayer{loadedDungeon.spawnX(), loadedDungeon.spawnY(), loadedDungeon.spawnDirection()};
     Roster loadedRoster = roster;
@@ -359,7 +381,7 @@ bool SaveSystem::load(const std::string& path,
         input >> playerX >> playerY >> playerDirection >> loadedKeys >> loadedPotions >> loadedXp;
         if (!input || !readRosterAndParty(input, loadedRoster, loadedParty, version)) return false;
         if (version >= 3) {
-            if (!readVersionThreeDungeon(input, loadedDungeon, version, loadedEvents, loadedCampaignState)) return false;
+            if (!readVersionThreeDungeon(input, loadedDungeon, version, loadedEvents, loadedCampaignState, loadedStoryState)) return false;
         } else if (!readVersionTwoEnemies(input, loadedDungeon)) {
             return false;
         }
@@ -399,6 +421,7 @@ bool SaveSystem::load(const std::string& path,
     xp = loadedXp;
     if (events) *events = std::move(loadedEvents);
     if (campaignState) *campaignState = std::move(loadedCampaignState);
+    if (storyState) *storyState = std::move(loadedStoryState);
     return true;
 }
 

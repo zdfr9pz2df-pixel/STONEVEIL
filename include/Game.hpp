@@ -12,6 +12,7 @@
 #include "Player.hpp"
 #include "Raycaster.hpp"
 #include "Roster.hpp"
+#include "StoryState.hpp"
 #include "raylib.h"
 
 #include <string>
@@ -83,6 +84,7 @@ private:
     std::unique_ptr<LevelEditor> editor_;
     CampaignDefinition campaign_{};
     CampaignState campaignState_{};
+    StoryState storyState_{};
     int campaignLevelIndex_{0};
     std::string levelPath_;
     std::string projectFile_;

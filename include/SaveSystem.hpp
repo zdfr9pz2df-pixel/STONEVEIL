@@ -5,6 +5,7 @@
 #include "Party.hpp"
 #include "Player.hpp"
 #include "Roster.hpp"
+#include "StoryState.hpp"
 
 #include <string>
 
@@ -21,7 +22,8 @@ public:
                      int potions,
                      int xp,
                      const EventRuntime* events = nullptr,
-                     const CampaignState* campaignState = nullptr);
+                     const CampaignState* campaignState = nullptr,
+                     const StoryState* storyState = nullptr);
 
     static bool load(const std::string& path,
                      PlayerState& player,
@@ -32,7 +34,8 @@ public:
                      int& potions,
                      int& xp,
                      EventRuntime* events = nullptr,
-                     CampaignState* campaignState = nullptr);
+                     CampaignState* campaignState = nullptr,
+                     StoryState* storyState = nullptr);
 
     // Reads only the authored level identity needed to construct the correct
     // Dungeon before a transactional full load. Legacy/version-2 saves return

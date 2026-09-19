@@ -172,6 +172,7 @@ void Game::selectCampaignLevel(int delta) {
     levelPath_ = contentRoot_.empty() ? resolveContentPath(relative) : (std::filesystem::path{contentRoot_} / relative).string();
     editor_ = std::make_unique<LevelEditor>(levelPath_, projectFile_);
     campaignState_.clear();
+    storyState_.clear();
     resetWorld();
     audio_.play(AudioCue::Turn);
 }
@@ -188,6 +189,7 @@ void Game::beginNewGame() {
     if (selectedStarters_.empty() || selectedStarters_.size() > Party::InitialCapacity) return;
     resetWorld();
     campaignState_.clear();
+    storyState_.clear();
     editorPlaytest_ = false;
     party_.reset();
     if (!roster_.beginNewGame(selectedStarters_) || !party_.setMembers(selectedStarters_)) {
@@ -212,6 +214,7 @@ void Game::beginEditorPlaytest() {
     if (starters.empty()) return;
     resetWorld(editor_->level());
     campaignState_.clear();
+    storyState_.clear();
     party_.reset();
     if (!roster_.beginNewGame(starters) || !party_.setMembers(starters)) {
         enterMode(Mode::Editor);
@@ -883,7 +886,7 @@ EventFireResult Game::fireEvent(const EventContext& context) {
         pendingArrival = arrivalId;
         return !levelId.empty() && !arrivalId.empty();
     };
-    const auto result = dispatchWorldEvent(events_, context, dungeon_, keys_, presentation);
+    const auto result = dispatchWorldEvent(events_, context, dungeon_, keys_, presentation, &storyState_);
     if (!pendingLevelTransition.empty() && !transitionToLevel(pendingLevelTransition, pendingArrival))
         setMessage("That passage is not connected to a valid arrival point.");
     return result;
@@ -958,7 +961,7 @@ bool Game::save() const {
     if (!file.parent_path().empty()) std::filesystem::create_directories(file.parent_path(), error);
     if (error) return false;
     return SaveSystem::save(file.string(), player_, roster_, party_, dungeon_, keys_, potions_, xp_,
-                            &events_, &campaignState_);
+                            &events_, &campaignState_, &storyState_);
 }
 
 bool Game::load() {
@@ -986,11 +989,12 @@ bool Game::load() {
     Party loadedParty = party_;
     EventRuntime loadedEvents;
     CampaignState loadedCampaignState;
+    StoryState loadedStoryState;
     int loadedKeys = keys_;
     int loadedPotions = potions_;
     int loadedXp = xp_;
     if (!SaveSystem::load(file.string(), loadedPlayer, loadedRoster, loadedParty, loadedDungeon,
-                          loadedKeys, loadedPotions, loadedXp, &loadedEvents, &loadedCampaignState)) {
+                          loadedKeys, loadedPotions, loadedXp, &loadedEvents, &loadedCampaignState, &loadedStoryState)) {
         setMessage("No valid save file found.");
         audio_.play(AudioCue::Error);
         return false;
@@ -1001,6 +1005,7 @@ bool Game::load() {
     dungeon_ = std::move(loadedDungeon);
     events_ = std::move(loadedEvents);
     campaignState_ = std::move(loadedCampaignState);
+    storyState_ = std::move(loadedStoryState);
     keys_ = loadedKeys;
     potions_ = loadedPotions;
     xp_ = loadedXp;

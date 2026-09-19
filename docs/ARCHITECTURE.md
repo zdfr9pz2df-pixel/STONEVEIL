@@ -167,7 +167,7 @@ disabled during a playtest, deliberately — see `Game::editorPlaytest_`.
   relative level paths. The title screen can cycle registered levels without recompilation.
 - `.svc` character catalogs are at **version 1**. They are project definitions,
   exported with the game, and are not embedded in player saves.
-- `.sav` is at **version 6**, with readers for 2–5 and the pre-versioned layout. Version 5 stores stable enemy/pickup IDs and event fired-counts. Version 6 adds inactive visited-level snapshots and restores the correct active registered level; see `SAVE_MIGRATIONS.md`. `SaveSystem::load`
+- `.sav` is at **version 7**, with readers for 2–6 and the pre-versioned layout. Version 5 stores stable enemy/pickup IDs and event fired-counts. Version 6 adds inactive visited-level snapshots and restores the correct active registered level. Version 7 adds campaign-wide named story flags; see `SAVE_MIGRATIONS.md`. `SaveSystem::load`
   copies the caller's `Dungeon` and overwrites tiles, pickups and enemies — so anything that is
   *authored* level data (materials, lights, dimensions) survives a load without touching the save
   format. That is why lights needed no save-version bump.

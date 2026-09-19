@@ -2,6 +2,7 @@
 
 #include "Dungeon.hpp"
 #include "EventSystem.hpp"
+#include "StoryState.hpp"
 
 namespace sv {
 
@@ -19,6 +20,7 @@ struct WorldEventPresentation {
 bool configureWorldEvents(const Dungeon& dungeon, EventRuntime& runtime);
 EventFireResult dispatchWorldEvent(EventRuntime& runtime, const EventContext& context,
                                    Dungeon& dungeon, int& campaignKeys,
-                                   const WorldEventPresentation& presentation);
+                                   const WorldEventPresentation& presentation,
+                                   StoryState* storyState = nullptr);
 
 } // namespace sv

@@ -54,6 +54,7 @@ add_library(stoneveil_core STATIC
   src/Portrait.cpp
   src/Roster.cpp
   src/SaveSystem.cpp
+  src/StoryState.cpp
   src/WorldAuthoring.cpp
   src/WorldEvents.cpp
 )

@@ -16,6 +16,7 @@
 #include "Portrait.hpp"
 #include "Roster.hpp"
 #include "SaveSystem.hpp"
+#include "StoryState.hpp"
 #include "WorldAuthoring.hpp"
 #include "WorldEvents.hpp"
 
@@ -74,6 +75,15 @@ int main() {
     CHECK(starters.size() == 3);
     CHECK(starters[0] != starters[1]);
     CHECK(findCharacterDefinition(character_ids::Vanguard)->maxHp == 42);
+
+    StoryState story;
+    CHECK(story.set("gatehouse.watch-order-read"));
+    CHECK(story.value("gatehouse.watch-order-read"));
+    CHECK(story.set("gatehouse.watch-order-read", false));
+    CHECK(story.contains("gatehouse.watch-order-read") && !story.value("gatehouse.watch-order-read"));
+    CHECK(!story.set("invalid flag name"));
+    CHECK(!story.replace({{"also invalid", true}}));
+    CHECK(story.value("gatehouse.watch-order-read") == false);
 
     for (const auto& material : materialCatalog()) {
         if (!material.texturePath.empty()) {
