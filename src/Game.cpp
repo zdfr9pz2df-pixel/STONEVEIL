@@ -896,6 +896,7 @@ void Game::drawHud() const {
         const auto& pick = combat_.lastMeleeTarget();
         const auto* targetDefinition = findCharacterDefinition(pick.target);
         const int debugY = y + 2;
+        if (!runtimeOnly_) {
         DrawText(TextFormat("TARGETING  %s  (n=%d)",
                             targetDefinition != nullptr ? targetDefinition->name.c_str() : "-",
                             combat_.meleeResolutions()),
@@ -906,6 +907,7 @@ void Game::drawHud() const {
                             gate_.movesTaken(), gate_.movesBlocked()),
                  panelX, debugY + 20, 15, Color{150, 208, 160, 255});
         DrawText("F1/F2/F3 debug party size", panelX, debugY + 40, 15, GRAY);
+        }
         DrawText("W/S move   A/D strafe", panelX, debugY + 68, 16, GRAY);
         DrawText("Q/E or arrows turn", panelX, debugY + 90, 16, GRAY);
         DrawText("SPACE attack   F interact", panelX, debugY + 112, 16, GRAY);
