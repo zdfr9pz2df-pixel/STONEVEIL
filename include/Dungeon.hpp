@@ -118,7 +118,7 @@ public:
 
     Tile tile(int x, int y) const;
     bool inBounds(int x, int y) const;
-    bool blocksMovement(int x, int y) const;
+    bool blocksMovement(int x, int y, const StoryState* storyState = nullptr) const;
     bool blocksSight(int x, int y) const;
     bool openDoor(int x, int y, bool hasKey);
     bool revealSecret(int x, int y);
@@ -139,8 +139,8 @@ public:
     int waterVolumeAt(int x, int y) const;
     bool hasWaterAt(int x, int y) const { return waterDepthAt(x, y) > 0; }
     const DoorPlacement* doorAt(int x, int y) const;
-    bool doorRequiresKeyAt(int x, int y) const;
-    const WorldObject* objectAt(int x, int y) const;
+    bool doorRequiresKeyAt(int x, int y, const StoryState* storyState = nullptr) const;
+    const WorldObject* objectAt(int x, int y, const StoryState* storyState = nullptr) const;
     const StoryRoom* roomAt(int x, int y) const;
 
     std::vector<Pickup>& pickups() { return pickups_; }

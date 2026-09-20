@@ -111,6 +111,8 @@ Rectangle triggerEventButton(int index) {
 Rectangle triggerEraseButton() { return {OptionX, 250.0f, OptionWidth, 32.0f}; }
 Rectangle triggerMessageBounds() { return {OptionX, 314.0f, OptionWidth, 46.0f}; }
 Rectangle triggerFlagBounds(int index) { return {OptionX, 398.0f + index * 62.0f, OptionWidth, 38.0f}; }
+Rectangle triggerSetValueBounds() { return {OptionX, 516.0f, OptionWidth, 30.0f}; }
+Rectangle objectFlagBounds(int index) { return {OptionX, 530.0f + index * 58.0f, OptionWidth, 34.0f}; }
 
 Rectangle eraseLightButton() {
     return {OptionX, EraseLightY, OptionWidth, 34.0f};
@@ -917,6 +919,11 @@ std::string* LevelEditor::activeText() {
         auto& object = level_.objects[static_cast<std::size_t>(selectedObjectIndex_)];
         if (textField_ == TextField::ObjectName) return &object.name;
         if (textField_ == TextField::ObjectText) return &object.text;
+        if (textField_ == TextField::ObjectRequiredFlag) return &object.requiredFlag;
+        if (textField_ == TextField::ObjectHiddenFlag) return &object.hiddenWhenFlag;
+    }
+    if (textField_ == TextField::DoorUnlockFlag && selection_.kind == SelectionKind::Door) {
+        for (auto& door : level_.doors) if (door.id == selection_.id) return &door.unlockFlag;
     }
     if (selectedRoomIndex_ >= 0 && selectedRoomIndex_ < static_cast<int>(level_.rooms.size())) {
         auto& room = level_.rooms[static_cast<std::size_t>(selectedRoomIndex_)];
@@ -1900,6 +1907,8 @@ void LevelEditor::update() {
             if (selectedObjectIndex_ >= 0 && selectedObjectIndex_ < static_cast<int>(level_.objects.size())) {
                 if (CheckCollisionPointRec(mouse, storyFieldBounds(5))) { beginTextEdit(TextField::ObjectName); return; }
                 if (CheckCollisionPointRec(mouse, storyFieldBounds(6))) { beginTextEdit(TextField::ObjectText); return; }
+                if (CheckCollisionPointRec(mouse, objectFlagBounds(0))) { beginTextEdit(TextField::ObjectRequiredFlag); return; }
+                if (CheckCollisionPointRec(mouse, objectFlagBounds(1))) { beginTextEdit(TextField::ObjectHiddenFlag); return; }
             }
         } else if (layer_ == Layer::Story) {
             if (CheckCollisionPointRec(mouse, storyModeButton(false))) {
@@ -1948,6 +1957,14 @@ void LevelEditor::update() {
                 }
                 if (CheckCollisionPointRec(mouse, triggerFlagBounds(1))) {
                     beginTextEdit(TextField::TriggerSetFlag); return;
+                }
+                if (CheckCollisionPointRec(mouse, triggerSetValueBounds())) {
+                    recordUndo();
+                    auto& trigger = level_.triggers[static_cast<std::size_t>(selectedTriggerIndex_)];
+                    trigger.setFlagValue = !trigger.setFlagValue;
+                    refreshValidation(trigger.setFlagValue ? "Consequence now sets the flag TRUE."
+                                                           : "Consequence now clears the flag to FALSE.");
+                    return;
                 }
             }
         } else if (layer_ == Layer::Lights) {
@@ -2246,6 +2263,10 @@ void LevelEditor::draw() const {
             drawTextField(storyFieldBounds(5), "SELECTED OBJECT NAME", object.name, textField_ == TextField::ObjectName);
             drawTextField(storyFieldBounds(6), "INTERACTION / NOTE / DIALOGUE TEXT", object.text,
                           textField_ == TextField::ObjectText);
+            drawTextField(objectFlagBounds(0), "VISIBLE ONLY WHEN FLAG IS TRUE (OPTIONAL)", object.requiredFlag,
+                          textField_ == TextField::ObjectRequiredFlag);
+            drawTextField(objectFlagBounds(1), "HIDE WHEN FLAG BECOMES TRUE (OPTIONAL)", object.hiddenWhenFlag,
+                          textField_ == TextField::ObjectHiddenFlag);
         }
     } else if (layer_ == Layer::Story) {
         DrawText("STORY ROOMS", static_cast<int>(OptionX), 112, 14, Muted);
@@ -2281,14 +2302,16 @@ void LevelEditor::draw() const {
                           textField_ == TextField::TriggerMessage);
             drawTextField(triggerFlagBounds(0), "REQUIRES TRUE FLAG (OPTIONAL)", trigger.requiredFlag,
                           textField_ == TextField::TriggerRequiredFlag);
-            drawTextField(triggerFlagBounds(1), "SET TRUE FLAG AFTER RUN (OPTIONAL)", trigger.setFlag,
+            drawTextField(triggerFlagBounds(1), "CHANGE FLAG AFTER RUN (OPTIONAL)", trigger.setFlag,
                           textField_ == TextField::TriggerSetFlag);
+            drawButton(triggerSetValueBounds(), trigger.setFlagValue ? "CONSEQUENCE VALUE: TRUE" : "CONSEQUENCE VALUE: FALSE",
+                       !trigger.setFlagValue, 12);
             DrawText(shortened("Target: " + (trigger.subjectId.empty() ? std::string{"cell"} : trigger.subjectId), 72).c_str(),
-                     static_cast<int>(OptionX), 530, 14, Muted);
+                     static_cast<int>(OptionX), 554, 14, Muted);
         } else {
             DrawText("Pick an event and click its cell or authored subject.", static_cast<int>(OptionX), 316, 14, Muted);
         }
-        DrawText("Blank flags mean unconditional / no consequence.", static_cast<int>(OptionX), 560, 14, Muted);
+        DrawText("Blank flags mean unconditional / no consequence.", static_cast<int>(OptionX), 580, 14, Muted);
     } else if (layer_ == Layer::Lights) {
         DrawText("LIGHT BRUSH", static_cast<int>(OptionX), 112, 14, Muted);
         drawButton(eraseLightButton(), "Erase Light", eraseLight_);
@@ -2365,10 +2388,11 @@ void LevelEditor::draw() const {
         drawButton({OptionX, defaultY, OptionWidth, 36.0f}, "MAKE SELECTION LEVEL DEFAULT", false, 15);
     }
 
-    const int validationY = 548;
+    const bool denseStoryPanel = layer_ == Layer::Objects || layer_ == Layer::Triggers;
+    const int validationY = denseStoryPanel ? 636 : 548;
     DrawText(validationErrors_.empty() ? "VALIDATION: READY" : "VALIDATION ISSUES", static_cast<int>(OptionX),
              validationY, 15, validationErrors_.empty() ? Valid : Invalid);
-    const std::size_t visibleErrors = std::min<std::size_t>(validationErrors_.size(), 4);
+    const std::size_t visibleErrors = std::min<std::size_t>(validationErrors_.size(), denseStoryPanel ? 1 : 4);
     for (std::size_t index = 0; index < visibleErrors; ++index) {
         DrawText(shortened(validationErrors_[index], 78).c_str(), static_cast<int>(OptionX),
                  validationY + 27 + static_cast<int>(index) * 22, 14, Invalid);
@@ -2472,7 +2496,7 @@ void LevelEditor::updateInspector() {
     if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) return;
     if (CheckCollisionPointRec(mouse, {1175, 112, 45, 30})) { inspectorOpen_ = movingSelection_ = false; return; }
     int action = -1;
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 7; ++i)
         if (CheckCollisionPointRec(mouse, {610, 255.0f + i*44.0f, 585, 34})) action = i;
     if (action < 0) return;
     int x{}, y{};
@@ -2505,12 +2529,15 @@ void LevelEditor::updateInspector() {
             if (it->subjectId.empty()) { status_ = "This event already uses its cell location."; return; }
             recordUndo(); it->subjectId.clear();
         } else if (action == 2) { recordUndo(); it->once = !it->once; }
+        else if (action == 5) { recordUndo(); it->setFlagValue = !it->setFlagValue; }
         else return;
     } else if (selection_.kind == SelectionKind::Object) {
         const auto it = std::find_if(level_.objects.begin(), level_.objects.end(), [&](const auto& o) { return o.id == selection_.id; });
         selectedObjectIndex_ = static_cast<int>(std::distance(level_.objects.begin(), it));
         if (action == 3) { beginTextEdit(TextField::ObjectName); return; }
         if (action == 4) { beginTextEdit(TextField::ObjectText); return; }
+        if (action == 5) { beginTextEdit(TextField::ObjectRequiredFlag); return; }
+        if (action == 6) { beginTextEdit(TextField::ObjectHiddenFlag); return; }
         if (action != 2) return;
         if (it->kind == WorldObjectKind::Recruit) {
             std::vector<const CharacterDefinition*> recruits;
@@ -2542,6 +2569,8 @@ void LevelEditor::updateInspector() {
             recordUndo();
             it->blocksMovement = !it->blocksMovement;
         }
+    } else if (selection_.kind == SelectionKind::Door && action == 3) {
+        beginTextEdit(TextField::DoorUnlockFlag); return;
     } else if (action != 2) return;
     else if (selection_.kind == SelectionKind::Spawn) {
         recordUndo(); level_.spawnDirection = (level_.spawnDirection + 1) % 4;
@@ -2578,8 +2607,8 @@ void LevelEditor::drawInspector() const {
     const auto map = mapBounds(level_);
     const auto size = mapCellSize(level_);
     DrawRectangleLinesEx({map.x+x*size, map.y+y*size, size, size}, 3, Accent);
-    DrawRectangle(585, 103, 650, 433, Panel);
-    DrawRectangleLines(585, 103, 650, 433, Accent);
+    DrawRectangle(585, 103, 650, 510, Panel);
+    DrawRectangleLines(585, 103, 650, 510, Accent);
     DrawText("OBJECT INSPECTOR", 610, 120, 22, Text);
     drawButton({1175, 112, 45, 30}, "X", false, 16);
     std::string title, property;
@@ -2607,9 +2636,15 @@ void LevelEditor::drawInspector() const {
         detail = std::string(triggerEventName(trigger.event)) + (trigger.once ? " / ONCE" : " / REPEAT");
         drawButton({610, 387, 585, 34}, shortened("MESSAGE: " + trigger.message, 58).c_str(), textField_ == TextField::TriggerMessage, 14);
         drawButton({610, 431, 585, 34}, shortened("UNBIND SUBJECT: " + trigger.subjectId, 58).c_str(), false, 14);
+        drawButton({610, 475, 585, 34}, trigger.setFlagValue ? "CONSEQUENCE VALUE: TRUE" : "CONSEQUENCE VALUE: FALSE",
+                   !trigger.setFlagValue, 14);
     }
     if (selection_.kind == SelectionKind::Spawn) detail = std::string("Facing: ") + std::array<const char*,4>{"NORTH","EAST","SOUTH","WEST"}[level_.spawnDirection];
-    for (const auto& door : level_.doors) if (selection_.kind == SelectionKind::Door && door.id == selection_.id) detail = door.locked ? "LOCKED" : "UNLOCKED";
+    for (const auto& door : level_.doors) if (selection_.kind == SelectionKind::Door && door.id == selection_.id) {
+        detail = door.locked ? "LOCKED" : "UNLOCKED";
+        drawButton({610, 387, 585, 34}, shortened("STORY UNLOCK FLAG: " + door.unlockFlag, 58).c_str(),
+                   textField_ == TextField::DoorUnlockFlag, 14);
+    }
     for (const auto& enemy : level_.enemies) if (selection_.kind == SelectionKind::Enemy && enemy.id == selection_.id) detail = enemyTypeOrDefault(enemy.typeId).name + " / HP " + std::to_string(enemy.hp);
     for (const auto& item : level_.pickups) if (selection_.kind == SelectionKind::Pickup && item.id == selection_.id) detail = item.type == Pickup::Type::Key ? "KEY" : "POTION";
     for (const auto& object : level_.objects) if (selection_.kind == SelectionKind::Object && object.id == selection_.id) {
@@ -2631,12 +2666,16 @@ void LevelEditor::drawInspector() const {
         }
         drawButton({610, 387, 585, 34}, shortened("NAME: " + object.name, 58).c_str(), textField_ == TextField::ObjectName, 14);
         drawButton({610, 431, 585, 34}, shortened("TEXT: " + object.text, 58).c_str(), textField_ == TextField::ObjectText, 14);
+        drawButton({610, 475, 585, 34}, shortened("VISIBLE WHEN: " + object.requiredFlag, 58).c_str(),
+                   textField_ == TextField::ObjectRequiredFlag, 14);
+        drawButton({610, 519, 585, 34}, shortened("HIDE WHEN: " + object.hiddenWhenFlag, 58).c_str(),
+                   textField_ == TextField::ObjectHiddenFlag, 14);
     }
     DrawText(shortened(detail, 65).c_str(), 610, 218, 16, Accent);
     drawButton({610, 255, 585, 34}, movingSelection_ ? "CLICK DESTINATION ON MAP" : "MOVE", movingSelection_, 16);
     drawButton({610, 299, 585, 34}, "DELETE (UNDOABLE; ATTACHED EVENTS PROTECTED)", false, 14);
     drawButton({610, 343, 585, 34}, property.c_str(), false, 15);
-    DrawText("Right-click to select / cycle. ESC cancels or closes.", 610, 516, 12, Muted);
+    DrawText("Right-click to select / cycle. ESC cancels or closes.", 610, 585, 12, Muted);
 }
 
 } // namespace sv

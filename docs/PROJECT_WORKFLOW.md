@@ -25,7 +25,7 @@ Project-mode saves are stored in project-folder/saves/game.sav. That folder must
 be writable. Projects currently have one save slot; install-folder-independent
 user-profile saves remain future work.
 
-Project format is STONEVEIL_PROJECT 1; level format remains 6, save format 5.
+Project format is STONEVEIL_PROJECT 1; the current level format is 10 and save format is 7.
 Project paths are relative and constrained to the project root. Missing music or
 material textures are warnings; invalid registries/levels are blocking errors.
 Project open currently requires valid registered levels; fix malformed source
@@ -56,9 +56,9 @@ Object identity and attached events survive movement. Delete is undoable but
 refuses objects with attached events until those events are removed/retargeted.
 Location-based EnterCell stories deliberately remain where authored.
 
-Available properties are type-specific: spawn facing, door lock, pickup kind,
+Available properties are type-specific: spawn facing, door lock/story-unlock flag, pickup kind,
 enemy archetype (resets authored HP), light type, and world-object movement
-blocking/name/text. Other kinds have no authored facing field yet. Text editing
+blocking/name/text/visibility flags. Other kinds have no authored facing field yet. Text editing
 uses the existing Enter/Escape-to-finish behavior; Ctrl+Z undoes the edit after
 finishing. Inspector mutations participate in document Undo/Redo.
 

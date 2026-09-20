@@ -2,6 +2,7 @@
 
 #include "EventSystem.hpp"
 #include "Character.hpp"
+#include "StoryState.hpp"
 #include <string>
 #include <vector>
 
@@ -15,6 +16,9 @@ struct DoorPlacement {
     int y{};
     DoorKind kind{DoorKind::Door};
     bool locked{true};
+    // A locked door can also be opened by story progression without
+    // consuming a key. Blank keeps the original key-only behavior.
+    std::string unlockFlag;
 };
 
 enum class WorldObjectKind {
@@ -41,6 +45,10 @@ struct WorldObject {
     int facing{0};
     std::string destinationLevelId;
     std::string destinationArrivalId;
+    // Optional campaign-state visibility gates. A required flag must be true;
+    // a hidden flag removes the object once it becomes true.
+    std::string requiredFlag;
+    std::string hiddenWhenFlag;
 };
 
 struct StoryRoom {
@@ -77,6 +85,7 @@ struct StoryTrigger {
     std::string message;
     std::string requiredFlag;
     std::string setFlag;
+    bool setFlagValue{true};
 };
 
 const char* doorKindName(DoorKind kind);
@@ -87,6 +96,7 @@ const char* triggerEventName(TriggerEvent event);
 bool parseTriggerEvent(const std::string& value, TriggerEvent& event);
 EventTriggerType eventTriggerType(TriggerEvent event);
 EventDefinition compileStoryTrigger(const StoryTrigger& trigger);
+bool worldObjectActive(const WorldObject& object, const StoryState* storyState);
 
 // Runtime state for authored narrative triggers. It deliberately owns only
 // fired-once IDs; the authored trigger data remains on Dungeon/LevelDefinition.

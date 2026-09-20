@@ -103,6 +103,8 @@ On the Object layer, choose a brush and click the map. Notes, inscriptions, shri
 NPCs, recruits, and party-management points can be selected and given interaction text. On Story, click two corners to draw a room,
 then edit its story purpose and intended feeling. On Event, choose the event type, click its authored
 subject or cell, and edit the message that appears during playtesting.
+Selected world objects can require a true story flag or hide after a flag becomes true. Door and gate
+inspectors accept an optional story-unlock flag. Event consequences can set their chosen flag true or false.
 
 To import music or ambience, drag `.wav`, `.ogg`, `.mp3`, or `.flac` files onto the editor window,
 then select the imported track on the Audio layer. Texture/sprite/portrait import will extend this same pipeline later.
@@ -158,10 +160,11 @@ The editor still uses simple 2D swatches for authoring, while the raycaster uses
 | M | Mute/unmute audio |
 | F5 | Save |
 | F9 | Load |
+| F4 | Open the creator story-state inspector; toggle known flags to test consequences |
 | Esc | Return to title |
 
 ## Architecture
 
 Player/view state, raycasting, dynamically sized level data and serialization, material definitions, editor state, character definitions, roster, party, combat/enemy simulation, and persistence now live outside `Game.cpp`. `Game` coordinates the title, gameplay, and integrated editor modes. Editor playtesting constructs the real runtime dungeon directly from the unsaved `LevelDefinition`. Reserve-roster size is independent of the active party, whose maximum capacity is three. See `docs/CREATOR_ALPHA_AUDIT.md` and `docs/SHIP_READINESS.md` for the current engineering plan and verified scope.
 
-Narrative and final art remain intentionally deferred. The current goal is a stable core loop and a robust base for recruitment, deeper combat, inventory, and additional authored levels.
+Final narrative content and final art remain intentionally deferred. The editor now has a stable cause-and-effect foundation for story flags, recruitment, conditional world objects, and multi-level campaigns.

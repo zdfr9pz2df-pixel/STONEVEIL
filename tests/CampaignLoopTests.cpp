@@ -76,6 +76,7 @@ int main() {
     StoryState storyState;
     CHECK(storyState.set("gatehouse.watch-order-read"));
     CHECK(storyState.set("underkeep.elska-recruited"));
+    CHECK(storyState.set("underkeep.warning-silenced", false));
     CHECK(dispatchWorldEvent(underkeepEvents,
         {EventTriggerType::InteractObject, 3, 2, "note.underkeep.masons"},
         underkeep, keys, presentation, &storyState).eventsRun == 2);
@@ -109,6 +110,8 @@ int main() {
     CHECK(loadedKeys == 1 && loadedPotions == 4 && loadedXp == 88);
     CHECK(loadedStoryState.value("gatehouse.watch-order-read"));
     CHECK(loadedStoryState.value("underkeep.elska-recruited"));
+    CHECK(loadedStoryState.contains("underkeep.warning-silenced"));
+    CHECK(!loadedStoryState.value("underkeep.warning-silenced"));
 
     Dungeon restoredGatehouse{gatehouseDefinition};
     EventRuntime restoredGatehouseEvents;

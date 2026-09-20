@@ -912,6 +912,11 @@ int main() {
     CHECK(!triggerSystem.fire(authoredLevel.triggers, TriggerEvent::EnterRoom, 2, 2,
                               "room.gatehouse.entry").empty());
 
+    authoredLevel.doors.front().unlockFlag = "gatehouse.main-lock-open";
+    authoredLevel.objects.front().requiredFlag = "gatehouse.watch-started";
+    authoredLevel.objects.front().hiddenWhenFlag = "gatehouse.watch-ended";
+    authoredLevel.triggers.front().setFlag = "gatehouse.watch-started";
+    authoredLevel.triggers.front().setFlagValue = false;
     const char* authoredRoundTripPath = "stoneveil_story_roundtrip.svl";
     CHECK(LevelIO::save(authoredRoundTripPath, authoredLevel, authoredError));
     LevelDefinition authoredRoundTrip;
@@ -919,6 +924,10 @@ int main() {
     CHECK(authoredRoundTrip.objects.size() == authoredLevel.objects.size());
     CHECK(authoredRoundTrip.rooms[0].intendedFeeling == authoredLevel.rooms[0].intendedFeeling);
     CHECK(authoredRoundTrip.triggers[0].subjectId == authoredLevel.triggers[0].subjectId);
+    CHECK(authoredRoundTrip.doors[0].unlockFlag == "gatehouse.main-lock-open");
+    CHECK(authoredRoundTrip.objects[0].requiredFlag == "gatehouse.watch-started");
+    CHECK(authoredRoundTrip.objects[0].hiddenWhenFlag == "gatehouse.watch-ended");
+    CHECK(!authoredRoundTrip.triggers[0].setFlagValue);
     std::remove(authoredRoundTripPath);
 
     CampaignDefinition campaignRegistry;

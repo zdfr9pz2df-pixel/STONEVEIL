@@ -2,13 +2,15 @@
 
 ## Authored levels
 
-Level format is version 9. Readers accept versions 1–9. Version 7 adds a stable
+Level format is version 10. Readers accept versions 1–10. Version 7 adds a stable
 numeric character reference to world-object records so recruit interactions do
 not depend on display names or list order. Version 8 adds arrival facing and
 stable destination-level/arrival IDs for campaign transitions. Older objects
 load with empty transition data. Version 9 adds optional required-true and
 set-true story flags to authored triggers. Older triggers remain unconditional
-and gain no consequence flag when loaded. Older levels gain
+and gain no consequence flag when loaded. Version 10 lets consequences write
+true or false, adds required/hidden flags to world objects, and adds a story-unlock
+flag to doors and gates. Empty fields preserve the old behavior. Older levels gain
 deterministic pickup/enemy/door IDs in memory and upgrade when saved. Map row
 shape is now checked before legacy ID migration. Compiled door event IDs must
 not collide with authored trigger IDs.
@@ -88,7 +90,7 @@ adapter actions report a message rather than pretending to run.
 
 ## Regression evidence
 
-Release-active suites cover level versions 1–8, save layouts pre-versioned/2–6,
+Release-active suites cover level versions 1–10, save layouts pre-versioned/2–7,
 stable-ID reorder restoration, death, reserve swaps, non-healing duplicate
 recruitment, cap enforcement, door key consumption, one-shot restoration,
 duplicate/derived-ID collisions, malformed old maps, callback exceptions,

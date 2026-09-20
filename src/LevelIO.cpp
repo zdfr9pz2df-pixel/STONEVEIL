@@ -20,7 +20,7 @@
 
 namespace sv {
 namespace {
-constexpr int LevelFormatVersion = 9;
+constexpr int LevelFormatVersion = 10;
 constexpr int MinimumLevelFormatVersion = 1;
 constexpr std::size_t MaxLevelObjects = 1024;
 
@@ -283,6 +283,7 @@ bool LevelIO::load(const std::string& path, LevelDefinition& level, std::string&
             std::string kind;
             int locked{};
             input >> std::quoted(door.id) >> door.x >> door.y >> kind >> locked;
+            if (input && version >= 10) input >> std::quoted(door.unlockFlag);
             if (!input || !parseDoorKind(kind, door.kind) || (locked != 0 && locked != 1)) {
                 error = "Invalid door metadata entry.";
                 return false;
@@ -305,6 +306,8 @@ bool LevelIO::load(const std::string& path, LevelDefinition& level, std::string&
             if (input && version >= 7) input >> object.characterId;
             if (input && version >= 8) input >> object.facing >> std::quoted(object.destinationLevelId) >>
                 std::quoted(object.destinationArrivalId);
+            if (input && version >= 10)
+                input >> std::quoted(object.requiredFlag) >> std::quoted(object.hiddenWhenFlag);
             if (!input || !parseWorldObjectKind(kind, object.kind) || (blocks != 0 && blocks != 1)) {
                 error = "Invalid world object entry.";
                 return false;
@@ -343,11 +346,15 @@ bool LevelIO::load(const std::string& path, LevelDefinition& level, std::string&
                 std::quoted(trigger.subjectId) >> once >> std::quoted(trigger.message);
             if (input && version >= 9)
                 input >> std::quoted(trigger.requiredFlag) >> std::quoted(trigger.setFlag);
-            if (!input || !parseTriggerEvent(event, trigger.event) || (once != 0 && once != 1)) {
+            int setFlagValue = 1;
+            if (input && version >= 10) input >> setFlagValue;
+            if (!input || !parseTriggerEvent(event, trigger.event) || (once != 0 && once != 1) ||
+                (setFlagValue != 0 && setFlagValue != 1)) {
                 error = "Invalid story trigger entry.";
                 return false;
             }
             trigger.once = once != 0;
+            trigger.setFlagValue = setFlagValue != 0;
             loaded.triggers.push_back(std::move(trigger));
         }
     } else {
@@ -432,14 +439,15 @@ bool LevelIO::save(const std::string& path, const LevelDefinition& level, std::s
     output << "DOORS " << level.doors.size() << '\n';
     for (const auto& door : level.doors) {
         output << std::quoted(door.id) << ' ' << door.x << ' ' << door.y << ' ' << doorKindName(door.kind)
-               << ' ' << (door.locked ? 1 : 0) << '\n';
+               << ' ' << (door.locked ? 1 : 0) << ' ' << std::quoted(door.unlockFlag) << '\n';
     }
     output << "OBJECTS " << level.objects.size() << '\n';
     for (const auto& object : level.objects) {
         output << std::quoted(object.id) << ' ' << worldObjectKindName(object.kind) << ' ' << object.x << ' '
                << object.y << ' ' << (object.blocksMovement ? 1 : 0) << ' ' << std::quoted(object.name) << ' '
                << std::quoted(object.text) << ' ' << object.characterId << ' ' << object.facing << ' '
-               << std::quoted(object.destinationLevelId) << ' ' << std::quoted(object.destinationArrivalId) << '\n';
+               << std::quoted(object.destinationLevelId) << ' ' << std::quoted(object.destinationArrivalId) << ' '
+               << std::quoted(object.requiredFlag) << ' ' << std::quoted(object.hiddenWhenFlag) << '\n';
     }
     output << "ROOMS " << level.rooms.size() << '\n';
     for (const auto& room : level.rooms) {
@@ -453,7 +461,7 @@ bool LevelIO::save(const std::string& path, const LevelDefinition& level, std::s
         output << std::quoted(trigger.id) << ' ' << triggerEventName(trigger.event) << ' ' << trigger.x << ' '
                << trigger.y << ' ' << std::quoted(trigger.subjectId) << ' ' << (trigger.once ? 1 : 0) << ' '
                << std::quoted(trigger.message) << ' ' << std::quoted(trigger.requiredFlag) << ' '
-               << std::quoted(trigger.setFlag) << '\n';
+               << std::quoted(trigger.setFlag) << ' ' << (trigger.setFlagValue ? 1 : 0) << '\n';
     }
     output << "END\n";
     if (!output) {
@@ -620,6 +628,8 @@ std::vector<std::string> LevelIO::validate(const LevelDefinition& level) {
             continue;
         }
         if (!doorCells.insert({door.x, door.y}).second) errors.push_back("A door cell has duplicate metadata.");
+        if (!door.unlockFlag.empty() && !StoryState::validKey(door.unlockFlag))
+            errors.push_back("Door unlock flags use letters, numbers, dots, dashes, and underscores only.");
     }
     if (validDimensions) {
         for (int y = 0; y < level.height; ++y) {
@@ -658,6 +668,12 @@ std::vector<std::string> LevelIO::validate(const LevelDefinition& level) {
         } else if (!object.destinationLevelId.empty() || !object.destinationArrivalId.empty()) {
             errors.push_back("Only level transitions may reference a destination.");
         }
+        if (!object.requiredFlag.empty() && !StoryState::validKey(object.requiredFlag))
+            errors.push_back("World object required flags use letters, numbers, dots, dashes, and underscores only.");
+        if (!object.hiddenWhenFlag.empty() && !StoryState::validKey(object.hiddenWhenFlag))
+            errors.push_back("World object hidden flags use letters, numbers, dots, dashes, and underscores only.");
+        if (!object.requiredFlag.empty() && object.requiredFlag == object.hiddenWhenFlag)
+            errors.push_back("A world object cannot require and hide from the same story flag.");
     }
     for (const auto& arrivalCell : arrivalCells) {
         if (arrivalCell != std::pair<int, int>{level.spawnX, level.spawnY} &&

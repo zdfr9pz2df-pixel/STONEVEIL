@@ -10,6 +10,28 @@ bool configureWorldEvents(const Dungeon& dungeon, EventRuntime& runtime) {
         if (!configured.addEvent(compileStoryTrigger(trigger))) return false;
     }
     for (const auto& placement : dungeon.doors()) {
+        if (placement.locked && !placement.unlockFlag.empty()) {
+            EventDefinition storyUnlock;
+            storyUnlock.id = placement.id + ".interact.story-unlock";
+            storyUnlock.name = "Story-unlocked passage";
+            storyUnlock.trigger = {EventTriggerType::InteractObject, placement.x, placement.y, placement.id};
+            storyUnlock.conditions.push_back({placement.unlockFlag, CompareOp::Equal, true});
+            storyUnlock.conditions.push_back({"door." + placement.id + ".closed", CompareOp::Equal, true});
+            storyUnlock.occurrence = EventOccurrence::Once;
+            storyUnlock.priority = -50;
+            storyUnlock.stopAfterRun = true;
+            EventAction open;
+            open.type = EventActionType::OpenDoor;
+            open.targetId = placement.id;
+            storyUnlock.actions.push_back(std::move(open));
+            EventAction message;
+            message.type = EventActionType::ShowMessage;
+            message.text = placement.kind == DoorKind::Gate
+                ? "The way is recognized. The gate opens."
+                : "The way is recognized. The door opens.";
+            storyUnlock.actions.push_back(std::move(message));
+            if (!configured.addEvent(std::move(storyUnlock))) return false;
+        }
         DoorBehavior door;
         door.id = placement.id;
         door.x = placement.x;
@@ -80,7 +102,9 @@ EventFireResult dispatchWorldEvent(EventRuntime& runtime, const EventContext& co
             case EventActionType::OpenDoor:
                 for (const auto& door : dungeon.doors()) {
                     if (door.id != action.targetId) continue;
-                    if (dungeon.openDoor(door.x, door.y, !door.locked || campaignKeys > 0)) {
+                    const bool storyUnlocked = storyState && !door.unlockFlag.empty() &&
+                        storyState->value(door.unlockFlag);
+                    if (dungeon.openDoor(door.x, door.y, !door.locked || campaignKeys > 0 || storyUnlocked)) {
                         if (presentation.cue) presentation.cue(WorldEventCue::DoorOpened);
                         runtime.fire({EventTriggerType::OpenDoor, door.x, door.y, door.id}, services);
                     }

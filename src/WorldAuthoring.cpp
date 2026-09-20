@@ -107,10 +107,16 @@ EventDefinition compileStoryTrigger(const StoryTrigger& trigger) {
         EventAction action;
         action.type = EventActionType::SetFact;
         action.targetId = trigger.setFlag;
-        action.value = true;
+        action.value = trigger.setFlagValue;
         result.actions.push_back(std::move(action));
     }
     return result;
+}
+
+bool worldObjectActive(const WorldObject& object, const StoryState* storyState) {
+    if (storyState == nullptr) return true;
+    if (!object.requiredFlag.empty() && !storyState->value(object.requiredFlag)) return false;
+    return object.hiddenWhenFlag.empty() || !storyState->value(object.hiddenWhenFlag);
 }
 
 std::vector<std::string> TriggerSystem::fire(const std::vector<StoryTrigger>& triggers,

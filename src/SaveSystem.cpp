@@ -408,7 +408,8 @@ bool SaveSystem::load(const std::string& path,
 
     if (loadedKeys < 0 || loadedPotions < 0 || loadedXp < 0 ||
         !loadedPlayer.restore(playerX, playerY, playerDirection) ||
-        !loadedDungeon.inBounds(playerX, playerY) || loadedDungeon.blocksMovement(playerX, playerY)) {
+        !loadedDungeon.inBounds(playerX, playerY) ||
+        loadedDungeon.blocksMovement(playerX, playerY, &loadedStoryState)) {
         return false;
     }
 

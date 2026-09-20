@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <set>
 #include <vector>
 
 #ifndef STONEVEIL_BUILD_LABEL
@@ -157,6 +158,9 @@ void Game::resetWorld(const LevelDefinition& level) {
     storyMessages_.clear();
     storyMessageTimer_ = 0.0f;
     currentRoomId_.clear();
+    storyInspectorOpen_ = false;
+    storyInspectorCursor_ = 0;
+    storyInspectorKeys_.clear();
 }
 
 void Game::selectCampaignLevel(int delta) {
@@ -312,6 +316,7 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     const auto lightDebugPath = directory / "lighting-debug.png";
     const auto storyEditorPath = directory / "story-editor.png";
     const auto gameplayPath = directory / "gameplay-lighting.png";
+    const auto storyInspectorPath = directory / "story-state-inspector.png";
     const auto partyManagementPath = directory / "party-management.png";
     const auto rawWarmupPath = originalDirectory / "stoneveil-capture-warmup.png";
     const auto rawTitlePath = originalDirectory / "stoneveil-title-menu.png";
@@ -320,6 +325,7 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     const auto rawLightDebugPath = originalDirectory / "stoneveil-lighting-debug.png";
     const auto rawStoryEditorPath = originalDirectory / "stoneveil-story-editor.png";
     const auto rawGameplayPath = originalDirectory / "stoneveil-gameplay-lighting.png";
+    const auto rawStoryInspectorPath = originalDirectory / "stoneveil-story-state-inspector.png";
     const auto rawPartyManagementPath = originalDirectory / "stoneveil-party-management.png";
 
     std::filesystem::remove(titlePath, error);
@@ -328,6 +334,7 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     std::filesystem::remove(lightDebugPath, error);
     std::filesystem::remove(storyEditorPath, error);
     std::filesystem::remove(gameplayPath, error);
+    std::filesystem::remove(storyInspectorPath, error);
     std::filesystem::remove(partyManagementPath, error);
     std::filesystem::remove(rawWarmupPath, error);
     std::filesystem::remove(rawTitlePath, error);
@@ -336,6 +343,7 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     std::filesystem::remove(rawLightDebugPath, error);
     std::filesystem::remove(rawStoryEditorPath, error);
     std::filesystem::remove(rawGameplayPath, error);
+    std::filesystem::remove(rawStoryInspectorPath, error);
     std::filesystem::remove(rawPartyManagementPath, error);
     error.clear();
 
@@ -391,6 +399,15 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     draw();
     draw();
     TakeScreenshot("stoneveil-gameplay-lighting.png");
+    if (!runtimeOnly_) {
+        storyState_.set("capture.story-example", false);
+        refreshStoryInspector();
+        storyInspectorOpen_ = true;
+        draw();
+        draw();
+        TakeScreenshot("stoneveil-story-state-inspector.png");
+        storyInspectorOpen_ = false;
+    }
     enterMode(Mode::PartyManagement);
     draw();
     draw();
@@ -422,6 +439,10 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
         std::filesystem::copy_file(rawGameplayPath, gameplayPath,
                                    std::filesystem::copy_options::overwrite_existing, error);
     }
+    if (!error && !runtimeOnly_) {
+        std::filesystem::copy_file(rawStoryInspectorPath, storyInspectorPath,
+                                   std::filesystem::copy_options::overwrite_existing, error);
+    }
     if (!error) {
         std::filesystem::copy_file(rawPartyManagementPath, partyManagementPath,
                                    std::filesystem::copy_options::overwrite_existing, error);
@@ -430,7 +451,8 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
         std::filesystem::exists(editorPath) && std::filesystem::exists(objectEditorPath) &&
         std::filesystem::exists(lightDebugPath) &&
         std::filesystem::exists(storyEditorPath) &&
-        std::filesystem::exists(gameplayPath) && std::filesystem::exists(partyManagementPath);
+        std::filesystem::exists(gameplayPath) && std::filesystem::exists(partyManagementPath) &&
+        (runtimeOnly_ || std::filesystem::exists(storyInspectorPath));
     std::filesystem::remove(rawWarmupPath, error);
     std::filesystem::remove(rawTitlePath, error);
     std::filesystem::remove(rawEditorPath, error);
@@ -438,6 +460,7 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     std::filesystem::remove(rawLightDebugPath, error);
     std::filesystem::remove(rawStoryEditorPath, error);
     std::filesystem::remove(rawGameplayPath, error);
+    std::filesystem::remove(rawStoryInspectorPath, error);
     std::filesystem::remove(rawPartyManagementPath, error);
     audio_.shutdown();
     CloseWindow();
@@ -666,6 +689,15 @@ void Game::updatePartyManagement() {
 
 void Game::updatePlaying(float dt) {
     worldChanged_ = false;
+    if (!runtimeOnly_ && IsKeyPressed(KEY_F4)) {
+        storyInspectorOpen_ = !storyInspectorOpen_;
+        if (storyInspectorOpen_) refreshStoryInspector();
+        return;
+    }
+    if (storyInspectorOpen_) {
+        updateStoryInspector();
+        return;
+    }
     if (IsKeyPressed(KEY_ESCAPE)) {
         audio_.play(AudioCue::UiBack);
         enterMode(editorPlaytest_ ? Mode::Editor : Mode::Title);
@@ -714,15 +746,19 @@ void Game::updatePlaying(float dt) {
 
     if (party_.empty()) enterMode(Mode::Defeat);
     if (dungeon_.tile(player_.x(), player_.y()) == Tile::Exit) {
-        const auto* passage = dungeon_.objectAt(player_.x(), player_.y());
-        if (passage == nullptr || passage->kind != WorldObjectKind::LevelTransition) enterMode(Mode::Victory);
+        const auto* passage = dungeon_.objectAt(player_.x(), player_.y(), &storyState_);
+        const auto* authoredPassage = dungeon_.objectAt(player_.x(), player_.y());
+        const bool conditionalTransition = authoredPassage != nullptr &&
+            authoredPassage->kind == WorldObjectKind::LevelTransition;
+        if (!conditionalTransition && (passage == nullptr || passage->kind != WorldObjectKind::LevelTransition))
+            enterMode(Mode::Victory);
     }
 }
 
 void Game::move(int forward, int strafe) {
     if (!gate_.tryMove(combatTuning())) return;
     const auto [nx, ny] = player_.movementTarget(forward, strafe);
-    if (dungeon_.blocksMovement(nx, ny) || combat_.enemyAt(dungeon_, nx, ny)) {
+    if (dungeon_.blocksMovement(nx, ny, &storyState_) || combat_.enemyAt(dungeon_, nx, ny)) {
         setMessage("Something blocks the way.", 1.0f);
         audio_.play(AudioCue::Bump);
         return;
@@ -742,7 +778,7 @@ void Game::move(int forward, int strafe) {
     currentRoomId_ = roomId;
     collectPickup();
     if (dungeon_.tile(player_.x(), player_.y()) == Tile::Exit) {
-        const auto* object = dungeon_.objectAt(player_.x(), player_.y());
+        const auto* object = dungeon_.objectAt(player_.x(), player_.y(), &storyState_);
         if (object && object->kind == WorldObjectKind::LevelTransition)
             fireStoryTrigger(TriggerEvent::InteractObject, object->x, object->y, object->id);
     }
@@ -770,7 +806,7 @@ void Game::interact() {
         else setMessage("This door is missing its authored identity.");
         return;
     }
-    if (const auto* object = dungeon_.objectAt(tx, ty)) {
+    if (const auto* object = dungeon_.objectAt(tx, ty, &storyState_)) {
         if (!fireStoryTrigger(TriggerEvent::InteractObject, tx, ty, object->id)) {
             setMessage(object->text.empty() ? object->name : object->text, 4.0f);
         }
@@ -938,6 +974,8 @@ bool Game::transitionToLevel(const std::string& levelId, const std::string& arri
     campaignLevelIndex_ = campaignIndex;
     levelMusicPath_ = dungeon_.musicPath();
     currentRoomId_.clear();
+    storyInspectorOpen_ = false;
+    storyInspectorKeys_.clear();
     if (const auto* room = dungeon_.roomAt(player_.x(), player_.y())) currentRoomId_ = room->id;
     combat_.reset();
     gate_.reset();
@@ -1015,6 +1053,8 @@ bool Game::load() {
     gate_.reset();
     storyMessages_.clear();
     storyMessageTimer_ = 0.0f;
+    storyInspectorOpen_ = false;
+    storyInspectorKeys_.clear();
     const auto* room = dungeon_.roomAt(player_.x(), player_.y());
     currentRoomId_ = room ? room->id : std::string{};
     levelMusicPath_ = dungeon_.musicPath();
@@ -1042,6 +1082,7 @@ void Game::draw() const {
     else {
         drawWorld();
         drawHud();
+        if (storyInspectorOpen_) drawStoryInspector();
     }
     EndDrawing();
 }
@@ -1086,7 +1127,7 @@ void Game::drawWorld() const {
             x += PlayerState::directionX(player_.direction());
             y += PlayerState::directionY(player_.direction());
             if (dungeon_.blocksSight(x, y)) break;
-            visibleObject = dungeon_.objectAt(x, y);
+            visibleObject = dungeon_.objectAt(x, y, &storyState_);
             if (visibleObject != nullptr) {
                 objectDistance = distance;
                 break;
@@ -1160,7 +1201,7 @@ void Game::drawHud() const {
                             static_cast<double>(gate_.attackRemaining()),
                             gate_.movesTaken(), gate_.movesBlocked()),
                  panelX, debugY + 20, 15, Color{150, 208, 160, 255});
-        DrawText("F1/F2/F3 debug party size", panelX, debugY + 40, 15, GRAY);
+        DrawText("F1/F2/F3 party   F4 story state", panelX, debugY + 40, 15, GRAY);
         }
         DrawText("W/S move   A/D strafe", panelX, debugY + 68, 16, GRAY);
         DrawText("Q/E or arrows turn", panelX, debugY + 90, 16, GRAY);
@@ -1175,6 +1216,74 @@ void Game::drawHud() const {
         const auto& shown = storyMessages_.empty() ? message_ : storyMessages_.front();
         DrawText(shown.c_str(), 44, 635, 21, Color{224, 217, 194, 255});
     }
+}
+
+void Game::refreshStoryInspector() {
+    std::set<std::string> keys;
+    for (const auto& fact : storyState_.facts()) keys.insert(fact.first);
+    for (const auto& trigger : dungeon_.triggers()) {
+        if (!trigger.requiredFlag.empty()) keys.insert(trigger.requiredFlag);
+        if (!trigger.setFlag.empty()) keys.insert(trigger.setFlag);
+    }
+    for (const auto& object : dungeon_.objects()) {
+        if (!object.requiredFlag.empty()) keys.insert(object.requiredFlag);
+        if (!object.hiddenWhenFlag.empty()) keys.insert(object.hiddenWhenFlag);
+    }
+    for (const auto& door : dungeon_.doors()) {
+        if (!door.unlockFlag.empty()) keys.insert(door.unlockFlag);
+    }
+    storyInspectorKeys_.assign(keys.begin(), keys.end());
+    storyInspectorCursor_ = std::clamp(storyInspectorCursor_, 0,
+        std::max(0, static_cast<int>(storyInspectorKeys_.size()) - 1));
+}
+
+void Game::updateStoryInspector() {
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        storyInspectorOpen_ = false;
+        return;
+    }
+    if (storyInspectorKeys_.empty()) return;
+    if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W))
+        storyInspectorCursor_ = (storyInspectorCursor_ + static_cast<int>(storyInspectorKeys_.size()) - 1) %
+            static_cast<int>(storyInspectorKeys_.size());
+    if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S))
+        storyInspectorCursor_ = (storyInspectorCursor_ + 1) % static_cast<int>(storyInspectorKeys_.size());
+    if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
+        const auto& key = storyInspectorKeys_[static_cast<std::size_t>(storyInspectorCursor_)];
+        storyState_.set(key, !storyState_.value(key));
+        setMessage(key + (storyState_.value(key) ? " = TRUE" : " = FALSE"), 1.5f);
+    }
+}
+
+void Game::drawStoryInspector() const {
+    DrawRectangle(150, 70, 980, 570, Color{6, 8, 11, 244});
+    DrawRectangleLines(150, 70, 980, 570, Color{197, 151, 66, 255});
+    DrawText("STORY STATE INSPECTOR", 185, 96, 28, Color{221, 196, 139, 255});
+    DrawText("Creator playtest tool - changes affect this run and are included in normal saves.",
+             185, 134, 16, LIGHTGRAY);
+    DrawText("UP/DOWN select    SPACE toggle    F4 or ESC close", 185, 162, 16, GRAY);
+
+    if (storyInspectorKeys_.empty()) {
+        DrawText("No story flags are known in this level or campaign yet.", 185, 224, 20, LIGHTGRAY);
+        return;
+    }
+
+    constexpr int visibleRows = 12;
+    const int first = std::clamp(storyInspectorCursor_ - visibleRows / 2, 0,
+        std::max(0, static_cast<int>(storyInspectorKeys_.size()) - visibleRows));
+    for (int row = 0; row < visibleRows && first + row < static_cast<int>(storyInspectorKeys_.size()); ++row) {
+        const int index = first + row;
+        const bool selected = index == storyInspectorCursor_;
+        const auto& key = storyInspectorKeys_[static_cast<std::size_t>(index)];
+        const bool active = storyState_.value(key);
+        const int y = 202 + row * 32;
+        if (selected) DrawRectangle(178, y - 4, 922, 28, Color{70, 58, 37, 255});
+        DrawText(active ? "TRUE" : "FALSE", 195, y, 17,
+                 active ? Color{111, 207, 132, 255} : Color{181, 101, 96, 255});
+        DrawText(key.c_str(), 285, y, 17, selected ? RAYWHITE : LIGHTGRAY);
+    }
+    DrawText(TextFormat("%d known campaign facts", static_cast<int>(storyInspectorKeys_.size())),
+             850, 596, 14, GRAY);
 }
 
 void Game::drawTitle() const {

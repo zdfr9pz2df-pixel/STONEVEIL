@@ -33,7 +33,11 @@ std::string legacyLevel(int version) {
         "PICKUPS 0\nENEMIES 0\nSURFACE_OVERRIDES 0\n";
     if (version >= 2) out << "LIGHTS 0\n";
     if (version >= 4) out << "WATER 0\n";
-    if (version >= 6) out << "DOORS 1\n\"door.legacy.1\" 2 1 DOOR 1\nOBJECTS 0\nROOMS 0\nTRIGGERS 0\n";
+    if (version >= 6) {
+        out << "DOORS 1\n\"door.legacy.1\" 2 1 DOOR 1";
+        if (version >= 10) out << " \"\"";
+        out << "\nOBJECTS 0\nROOMS 0\nTRIGGERS 0\n";
+    }
     out << "END\n";
     return out.str();
 }
@@ -61,7 +65,7 @@ void oldFormatsAndMalformedInput() {
     const char* path = "compat-level.svl";
     LevelDefinition level;
     std::string error;
-    for (int version = 1; version <= 9; ++version) {
+    for (int version = 1; version <= 10; ++version) {
         writeFixture(path, legacyLevel(version));
         CHECK(LevelIO::load(path, level, error));
         CHECK(level.doors.size() == 1 && level.doors[0].id == "door.legacy.1");
@@ -119,6 +123,54 @@ void runtimeDoorStoryAndIdentityRoundtrip() {
     CHECK(dungeon.tile(door.x, door.y) == Tile::DoorOpen && keys == 1);
     dispatchWorldEvent(events, {EventTriggerType::InteractObject, door.x, door.y, door.id}, dungeon, keys, presentation);
     CHECK(keys == 1);
+
+    auto consequenceLevel = levelOneDefinition();
+    consequenceLevel.doors.front().unlockFlag = "gatehouse.password-known";
+    WorldObject conditionalObject;
+    conditionalObject.id = "npc.conditional";
+    conditionalObject.kind = WorldObjectKind::Npc;
+    conditionalObject.name = "Conditional NPC";
+    conditionalObject.requiredFlag = "gatehouse.guard-friendly";
+    conditionalObject.hiddenWhenFlag = "gatehouse.guard-departed";
+    StoryState story;
+    CHECK(!worldObjectActive(conditionalObject, &story));
+    CHECK(story.set("gatehouse.guard-friendly"));
+    CHECK(worldObjectActive(conditionalObject, &story));
+    CHECK(story.set("gatehouse.guard-departed"));
+    CHECK(!worldObjectActive(conditionalObject, &story));
+
+    consequenceLevel.objects.front().requiredFlag = "gatehouse.guard-friendly";
+    consequenceLevel.objects.front().hiddenWhenFlag = "gatehouse.guard-departed";
+    consequenceLevel.objects.front().blocksMovement = true;
+    Dungeon consequenceDungeon{consequenceLevel};
+    const auto conditionalX = consequenceLevel.objects.front().x;
+    const auto conditionalY = consequenceLevel.objects.front().y;
+    CHECK(consequenceDungeon.objectAt(conditionalX, conditionalY, &story) == nullptr);
+    CHECK(story.set("gatehouse.guard-departed", false));
+    CHECK(consequenceDungeon.objectAt(conditionalX, conditionalY, &story) != nullptr);
+    CHECK(consequenceDungeon.blocksMovement(conditionalX, conditionalY, &story));
+    EventRuntime consequenceEvents;
+    CHECK(configureWorldEvents(consequenceDungeon, consequenceEvents));
+    int noKeys = 0;
+    const auto consequenceDoor = consequenceLevel.doors.front();
+    CHECK(dispatchWorldEvent(consequenceEvents,
+        {EventTriggerType::InteractObject, consequenceDoor.x, consequenceDoor.y, consequenceDoor.id},
+        consequenceDungeon, noKeys, presentation, &story).consumed);
+    CHECK(consequenceDungeon.tile(consequenceDoor.x, consequenceDoor.y) == Tile::DoorClosed);
+    CHECK(story.set("gatehouse.password-known"));
+    CHECK(!consequenceDungeon.doorRequiresKeyAt(consequenceDoor.x, consequenceDoor.y, &story));
+    CHECK(dispatchWorldEvent(consequenceEvents,
+        {EventTriggerType::InteractObject, consequenceDoor.x, consequenceDoor.y, consequenceDoor.id},
+        consequenceDungeon, noKeys, presentation, &story).consumed);
+    CHECK(consequenceDungeon.tile(consequenceDoor.x, consequenceDoor.y) == Tile::DoorOpen);
+
+    StoryTrigger clearing;
+    clearing.id = "trigger.clear-warning";
+    clearing.message = "The warning passes.";
+    clearing.setFlag = "gatehouse.warning";
+    clearing.setFlagValue = false;
+    const auto compiledClearing = compileStoryTrigger(clearing);
+    CHECK(std::get<bool>(compiledClearing.actions.back().value) == false);
 
     PlayerState player{2, 2, 1};
     Party party;

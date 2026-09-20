@@ -56,10 +56,10 @@ bool Dungeon::inBounds(int x, int y) const {
     return x >= 0 && y >= 0 && x < width_ && y < height_;
 }
 
-bool Dungeon::blocksMovement(int x, int y) const {
+bool Dungeon::blocksMovement(int x, int y, const StoryState* storyState) const {
     const auto t = tile(x, y);
     if (t == Tile::Wall || t == Tile::DoorClosed || t == Tile::SecretDoorClosed) return true;
-    const auto* object = objectAt(x, y);
+    const auto* object = objectAt(x, y, storyState);
     return object != nullptr && object->blocksMovement;
 }
 
@@ -142,16 +142,18 @@ const DoorPlacement* Dungeon::doorAt(int x, int y) const {
     return nullptr;
 }
 
-bool Dungeon::doorRequiresKeyAt(int x, int y) const {
+bool Dungeon::doorRequiresKeyAt(int x, int y, const StoryState* storyState) const {
     const auto* door = doorAt(x, y);
     // Levels written before door metadata existed preserve their locked-door
     // behavior instead of silently becoming easier.
-    return door == nullptr || door->locked;
+    return door == nullptr || (door->locked &&
+        (door->unlockFlag.empty() || storyState == nullptr || !storyState->value(door->unlockFlag)));
 }
 
-const WorldObject* Dungeon::objectAt(int x, int y) const {
+const WorldObject* Dungeon::objectAt(int x, int y, const StoryState* storyState) const {
     for (const auto& object : objects_) {
-        if (object.kind != WorldObjectKind::ArrivalPoint && object.x == x && object.y == y) return &object;
+        if (object.kind != WorldObjectKind::ArrivalPoint && object.x == x && object.y == y &&
+            worldObjectActive(object, storyState)) return &object;
     }
     return nullptr;
 }

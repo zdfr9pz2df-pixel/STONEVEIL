@@ -157,12 +157,13 @@ disabled during a playtest, deliberately — see `Game::editorPlaytest_`.
 
 **Format versions**
 
-- `.svl` is at **version 9**. Versions 1–8 still load; saving always writes the current version.
+- `.svl` is at **version 10**. Versions 1–9 still load; saving always writes the current version.
   Backward loading is a non-regression requirement. Versions 3–5 added enemy archetypes, water, and
   music. Version 6 adds stable pickup/enemy/door IDs, door lock/gate metadata, world objects, story
   rooms, and triggers. Version 7 adds stable character references for recruit objects. Version 8 adds
   editor-only arrival markers and level transitions using registered level and arrival IDs. Version 9 adds
-  named required/set story flags to triggers. Older levels
+  named required/set story flags to triggers. Version 10 adds true/false consequences, conditional
+  world-object visibility, and story-unlock flags for doors and gates. Older levels
   receive deterministic legacy IDs and locked-door metadata in memory.
 - `.campaign` is at **version 1** and lists stable level IDs, display names, a starting level, and safe
   relative level paths. The title screen can cycle registered levels without recompilation.

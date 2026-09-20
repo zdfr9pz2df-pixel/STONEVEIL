@@ -56,6 +56,9 @@ private:
     void draw() const;
     void drawWorld() const;
     void drawHud() const;
+    void refreshStoryInspector();
+    void updateStoryInspector();
+    void drawStoryInspector() const;
     void drawTitle() const;
     void drawNewGame() const;
     void drawPartyManagement() const;
@@ -107,6 +110,9 @@ private:
     std::deque<std::string> storyMessages_;
     float storyMessageTimer_{0.0f};
     std::string currentRoomId_;
+    bool storyInspectorOpen_{false};
+    int storyInspectorCursor_{0};
+    std::vector<std::string> storyInspectorKeys_;
 };
 
 } // namespace sv

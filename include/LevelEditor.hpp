@@ -22,7 +22,14 @@ public:
     void showStoryLayerForCapture();
     void showObjectsLayerForCapture();
     void showProjectPanelForCapture(bool visible) { projectPanelOpen_ = visible; }
-    void showInspectorForCapture() { selection_ = {}; inspectorOpen_ = true; }
+    void showInspectorForCapture() {
+        if (!level_.objects.empty()) {
+            const auto& object = level_.objects.front();
+            selection_ = {SelectionKind::Object, object.id, object.x, object.y};
+            selectedObjectIndex_ = 0;
+        } else selection_ = {};
+        inspectorOpen_ = true;
+    }
     void closeInspectorForCapture() { inspectorOpen_ = movingSelection_ = false; }
     void showCharacterCreatorForCapture() { projectPanelOpen_ = true; openCharacterCreator(); }
     void closeCharacterCreatorForCapture() { characterCreatorOpen_ = false; }
@@ -83,6 +90,9 @@ private:
         LevelName,
         ObjectName,
         ObjectText,
+        ObjectRequiredFlag,
+        ObjectHiddenFlag,
+        DoorUnlockFlag,
         RoomName,
         RoomPurpose,
         RoomMood,

@@ -76,7 +76,7 @@ The current tree includes:
 - permanent-death state and recruitment-ready reserve records
 - a maximum active-party capacity of 3; additional recruits stay in Reserve
 - a dynamic gameplay HUD that renders 1–3 active members
-- version 6 saves that persist roster state, death, active members, inventory/XP, the current registered level, inactive visited-level snapshots, stable entity identities, and event fired-counts
+- version 7 saves that persist roster state, death, active members, inventory/XP, the current registered level, inactive visited-level snapshots, stable entity identities, event fired-counts, and named campaign story facts
 - backward loading for the earlier save layouts
 - a versioned external Gatehouse level in `content/levels/gatehouse.svl`
 - categorized stable material IDs, per-cell surface overrides, and open-sky ceiling mode
@@ -84,8 +84,9 @@ The current tree includes:
   with grid line-of-sight so a torch does not shine through solid stone
 - a second-pass lighting model with darker ambient, warm torch contribution, softer falloff, directional
   wall-face shading, distance/corner dimming, and per-surface floor/ceiling light sampling
-- level format version 9, which adds trigger-authored story conditions/consequences on top of stable
-  arrivals, transitions, and recruit references while loading versions 1–8
+- level format version 10, which adds trigger-authored true/false story consequences, conditional
+  world-object visibility, and story-unlocked doors/gates on top of stable arrivals, transitions,
+  and recruit references while loading versions 1–9
 - queryable authored water cells with depth, flow direction, and volume IDs, ready for later movement,
   audio, light-extinguishing, rendering, and AI rules
 - a title-menu dungeon editor for structure, wall, floor, ceiling, object, story, event, light, and audio layers
@@ -94,6 +95,10 @@ The current tree includes:
 - Story-room rectangle authoring with room name, purpose, mood, lore note, and intended feeling
 - Event triggers for entering a cell/room, opening a door, killing an enemy, collecting an item, and
   interacting with an object; playtests display authored discovery text through the real game HUD
+- Conditional props, NPCs, recruits, and transitions that appear or disappear from campaign facts;
+  locked doors and gates can accept a named story-unlock fact instead of consuming a key
+- An F4 story-state inspector in creator playtests that lists all known current-level/campaign facts
+  and lets creators toggle them to test alternate world states without replaying the whole campaign
 - editor undo/redo, New Level, Save As, and dirty-draft confirmation before reload/new/menu exit
 - a versioned campaign registry and title-screen level selector; Gatehouse is no longer a compiled filename
 - a playable two-level Gatehouse/Underkeep loop with lore, recruitment, party management, return travel,
@@ -226,7 +231,7 @@ Keep the current 4–64 dimension safety range until larger-map performance and 
 
 ## Non-regression requirements
 
-- Keep the Release build and all nine CTest cases green.
+- Keep the Release build and all ten CTest cases green.
 - Preserve movement, collision, doors, combat, save/load compatibility, and the centered-eye raycaster.
 - Keep loading older level files; saving always upgrades them to the current version.
 - Keep the single executable and shared `content` folder in the downloadable Windows playtest.
