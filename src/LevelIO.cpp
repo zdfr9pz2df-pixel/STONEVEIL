@@ -4,6 +4,7 @@
 #include "EnemyType.hpp"
 #include "Lighting.hpp"
 #include "Material.hpp"
+#include "StoryState.hpp"
 #include "WorldEvents.hpp"
 
 #include <algorithm>
@@ -19,7 +20,7 @@
 
 namespace sv {
 namespace {
-constexpr int LevelFormatVersion = 8;
+constexpr int LevelFormatVersion = 9;
 constexpr int MinimumLevelFormatVersion = 1;
 constexpr std::size_t MaxLevelObjects = 1024;
 
@@ -340,6 +341,8 @@ bool LevelIO::load(const std::string& path, LevelDefinition& level, std::string&
             int once{};
             input >> std::quoted(trigger.id) >> event >> trigger.x >> trigger.y >>
                 std::quoted(trigger.subjectId) >> once >> std::quoted(trigger.message);
+            if (input && version >= 9)
+                input >> std::quoted(trigger.requiredFlag) >> std::quoted(trigger.setFlag);
             if (!input || !parseTriggerEvent(event, trigger.event) || (once != 0 && once != 1)) {
                 error = "Invalid story trigger entry.";
                 return false;
@@ -449,7 +452,8 @@ bool LevelIO::save(const std::string& path, const LevelDefinition& level, std::s
     for (const auto& trigger : level.triggers) {
         output << std::quoted(trigger.id) << ' ' << triggerEventName(trigger.event) << ' ' << trigger.x << ' '
                << trigger.y << ' ' << std::quoted(trigger.subjectId) << ' ' << (trigger.once ? 1 : 0) << ' '
-               << std::quoted(trigger.message) << '\n';
+               << std::quoted(trigger.message) << ' ' << std::quoted(trigger.requiredFlag) << ' '
+               << std::quoted(trigger.setFlag) << '\n';
     }
     output << "END\n";
     if (!output) {
@@ -679,6 +683,10 @@ std::vector<std::string> LevelIO::validate(const LevelDefinition& level) {
             errors.push_back("A story trigger is outside the map.");
         }
         if (trigger.message.empty()) errors.push_back("Story triggers need message text.");
+        if (!trigger.requiredFlag.empty() && !StoryState::validKey(trigger.requiredFlag))
+            errors.push_back("Story trigger required flags use letters, numbers, dots, dashes, and underscores only.");
+        if (!trigger.setFlag.empty() && !StoryState::validKey(trigger.setFlag))
+            errors.push_back("Story trigger consequence flags use letters, numbers, dots, dashes, and underscores only.");
     }
 
     if (validDimensions && coordinateIsWalkable(level, level.spawnX, level.spawnY)) {

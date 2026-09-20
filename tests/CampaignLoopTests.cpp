@@ -5,6 +5,7 @@
 #include "StoryState.hpp"
 #include "WorldEvents.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -59,6 +60,15 @@ int main() {
     Party party;
     CHECK(party.setMembers({1001, 1002, 2001}));
 
+    auto warning = std::find_if(underkeepDefinition.triggers.begin(), underkeepDefinition.triggers.end(),
+        [](const auto& trigger) { return trigger.id == "trigger.underkeep.note"; });
+    CHECK(warning != underkeepDefinition.triggers.end());
+    warning->setFlag = "underkeep.warning-read";
+    StoryTrigger consequence{"trigger.underkeep.warning-echo", TriggerEvent::InteractObject,
+        3, 2, "note.underkeep.masons", true, "The warning now has meaning."};
+    consequence.requiredFlag = "underkeep.warning-read";
+    consequence.setFlag = "underkeep.echo-understood";
+    underkeepDefinition.triggers.push_back(consequence);
     Dungeon underkeep{underkeepDefinition};
     EventRuntime underkeepEvents;
     CHECK(configureWorldEvents(underkeep, underkeepEvents));
@@ -66,6 +76,11 @@ int main() {
     StoryState storyState;
     CHECK(storyState.set("gatehouse.watch-order-read"));
     CHECK(storyState.set("underkeep.elska-recruited"));
+    CHECK(dispatchWorldEvent(underkeepEvents,
+        {EventTriggerType::InteractObject, 3, 2, "note.underkeep.masons"},
+        underkeep, keys, presentation, &storyState).eventsRun == 2);
+    CHECK(storyState.value("underkeep.warning-read"));
+    CHECK(storyState.value("underkeep.echo-understood"));
     const auto savePath = std::filesystem::current_path() /
         ("campaign-loop-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".sav");
     CHECK(SaveSystem::save(savePath.string(), player, roster, party, underkeep,

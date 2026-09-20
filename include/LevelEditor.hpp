@@ -89,6 +89,8 @@ private:
         RoomLore,
         RoomFeeling,
         TriggerMessage,
+        TriggerRequiredFlag,
+        TriggerSetFlag,
     };
 
     enum class PendingAction { None, Exit, Reload, NewLevel, Quit, NewProject, OpenProject, OpenLevel, OpenRegistered };

@@ -110,6 +110,7 @@ Rectangle triggerEventButton(int index) {
 
 Rectangle triggerEraseButton() { return {OptionX, 250.0f, OptionWidth, 32.0f}; }
 Rectangle triggerMessageBounds() { return {OptionX, 314.0f, OptionWidth, 46.0f}; }
+Rectangle triggerFlagBounds(int index) { return {OptionX, 398.0f + index * 62.0f, OptionWidth, 38.0f}; }
 
 Rectangle eraseLightButton() {
     return {OptionX, EraseLightY, OptionWidth, 34.0f};
@@ -925,9 +926,11 @@ std::string* LevelEditor::activeText() {
         if (textField_ == TextField::RoomLore) return &room.lore;
         if (textField_ == TextField::RoomFeeling) return &room.intendedFeeling;
     }
-    if (selectedTriggerIndex_ >= 0 && selectedTriggerIndex_ < static_cast<int>(level_.triggers.size()) &&
-        textField_ == TextField::TriggerMessage) {
-        return &level_.triggers[static_cast<std::size_t>(selectedTriggerIndex_)].message;
+    if (selectedTriggerIndex_ >= 0 && selectedTriggerIndex_ < static_cast<int>(level_.triggers.size())) {
+        auto& trigger = level_.triggers[static_cast<std::size_t>(selectedTriggerIndex_)];
+        if (textField_ == TextField::TriggerMessage) return &trigger.message;
+        if (textField_ == TextField::TriggerRequiredFlag) return &trigger.requiredFlag;
+        if (textField_ == TextField::TriggerSetFlag) return &trigger.setFlag;
     }
     return nullptr;
 }
@@ -1939,6 +1942,14 @@ void LevelEditor::update() {
                 beginTextEdit(TextField::TriggerMessage);
                 return;
             }
+            if (selectedTriggerIndex_ >= 0 && selectedTriggerIndex_ < static_cast<int>(level_.triggers.size())) {
+                if (CheckCollisionPointRec(mouse, triggerFlagBounds(0))) {
+                    beginTextEdit(TextField::TriggerRequiredFlag); return;
+                }
+                if (CheckCollisionPointRec(mouse, triggerFlagBounds(1))) {
+                    beginTextEdit(TextField::TriggerSetFlag); return;
+                }
+            }
         } else if (layer_ == Layer::Lights) {
             if (CheckCollisionPointRec(mouse, eraseLightButton())) {
                 eraseLight_ = true;
@@ -2268,12 +2279,16 @@ void LevelEditor::draw() const {
             const auto& trigger = level_.triggers[static_cast<std::size_t>(selectedTriggerIndex_)];
             drawTextField(triggerMessageBounds(), "DISCOVERY / DIALOGUE MESSAGE", trigger.message,
                           textField_ == TextField::TriggerMessage);
+            drawTextField(triggerFlagBounds(0), "REQUIRES TRUE FLAG (OPTIONAL)", trigger.requiredFlag,
+                          textField_ == TextField::TriggerRequiredFlag);
+            drawTextField(triggerFlagBounds(1), "SET TRUE FLAG AFTER RUN (OPTIONAL)", trigger.setFlag,
+                          textField_ == TextField::TriggerSetFlag);
             DrawText(shortened("Target: " + (trigger.subjectId.empty() ? std::string{"cell"} : trigger.subjectId), 72).c_str(),
-                     static_cast<int>(OptionX), 380, 14, Muted);
+                     static_cast<int>(OptionX), 530, 14, Muted);
         } else {
             DrawText("Pick an event and click its cell or authored subject.", static_cast<int>(OptionX), 316, 14, Muted);
         }
-        DrawText("Triggers currently display text once during the playtest.", static_cast<int>(OptionX), 414, 14, Muted);
+        DrawText("Blank flags mean unconditional / no consequence.", static_cast<int>(OptionX), 560, 14, Muted);
     } else if (layer_ == Layer::Lights) {
         DrawText("LIGHT BRUSH", static_cast<int>(OptionX), 112, 14, Muted);
         drawButton(eraseLightButton(), "Erase Light", eraseLight_);

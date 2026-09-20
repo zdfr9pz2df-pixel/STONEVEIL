@@ -75,6 +75,8 @@ struct StoryTrigger {
     std::string subjectId;
     bool once{true};
     std::string message;
+    std::string requiredFlag;
+    std::string setFlag;
 };
 
 const char* doorKindName(DoorKind kind);

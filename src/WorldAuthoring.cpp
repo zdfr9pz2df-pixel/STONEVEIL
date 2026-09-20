@@ -96,9 +96,18 @@ EventDefinition compileStoryTrigger(const StoryTrigger& trigger) {
         trigger.subjectId.empty() ? trigger.x : -1,
         trigger.subjectId.empty() ? trigger.y : -1, trigger.subjectId};
     result.occurrence = trigger.once ? EventOccurrence::Once : EventOccurrence::EveryTime;
+    if (!trigger.requiredFlag.empty())
+        result.conditions.push_back({trigger.requiredFlag, CompareOp::Equal, true});
     if (!trigger.message.empty()) {
         EventAction action;
         action.text = trigger.message;
+        result.actions.push_back(std::move(action));
+    }
+    if (!trigger.setFlag.empty()) {
+        EventAction action;
+        action.type = EventActionType::SetFact;
+        action.targetId = trigger.setFlag;
+        action.value = true;
         result.actions.push_back(std::move(action));
     }
     return result;

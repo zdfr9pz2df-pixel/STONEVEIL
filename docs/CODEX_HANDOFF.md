@@ -84,8 +84,8 @@ The current tree includes:
   with grid line-of-sight so a torch does not shine through solid stone
 - a second-pass lighting model with darker ambient, warm torch contribution, softer falloff, directional
   wall-face shading, distance/corner dimming, and per-surface floor/ceiling light sampling
-- level format version 8, which adds stable arrival markers and level-transition destinations while
-  retaining recruit references and loading versions 1–7
+- level format version 9, which adds trigger-authored story conditions/consequences on top of stable
+  arrivals, transitions, and recruit references while loading versions 1–8
 - queryable authored water cells with depth, flow direction, and volume IDs, ready for later movement,
   audio, light-extinguishing, rendering, and AI rules
 - a title-menu dungeon editor for structure, wall, floor, ceiling, object, story, event, light, and audio layers

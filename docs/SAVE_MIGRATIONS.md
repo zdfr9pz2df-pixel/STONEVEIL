@@ -2,11 +2,13 @@
 
 ## Authored levels
 
-Level format is version 8. Readers accept versions 1–8. Version 7 adds a stable
+Level format is version 9. Readers accept versions 1–9. Version 7 adds a stable
 numeric character reference to world-object records so recruit interactions do
 not depend on display names or list order. Version 8 adds arrival facing and
 stable destination-level/arrival IDs for campaign transitions. Older objects
-load with empty transition data and save back in version 8. Older levels gain
+load with empty transition data. Version 9 adds optional required-true and
+set-true story flags to authored triggers. Older triggers remain unconditional
+and gain no consequence flag when loaded. Older levels gain
 deterministic pickup/enemy/door IDs in memory and upgrade when saved. Map row
 shape is now checked before legacy ID migration. Compiled door event IDs must
 not collide with authored trigger IDs.
