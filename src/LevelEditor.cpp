@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cctype>
 #include <filesystem>
+#include <iterator>
 #include <limits>
 #include <random>
 #include <set>
@@ -74,7 +75,7 @@ constexpr float NoMusicY = 130.0f;
 constexpr float FirstMusicY = 190.0f;
 
 Rectangle layerButton(int index) {
-    return {MapAreaX + static_cast<float>(index) * 57.0f, 64.0f, 52.0f, 34.0f};
+    return {MapAreaX + static_cast<float>(index) * 54.0f, 64.0f, 49.0f, 34.0f};
 }
 
 Rectangle undoButton() { return {660.0f, 20.0f, 62.0f, 28.0f}; }
@@ -113,6 +114,24 @@ Rectangle triggerMessageBounds() { return {OptionX, 314.0f, OptionWidth, 46.0f};
 Rectangle triggerFlagBounds(int index) { return {OptionX, 398.0f + index * 62.0f, OptionWidth, 38.0f}; }
 Rectangle triggerSetValueBounds() { return {OptionX, 516.0f, OptionWidth, 30.0f}; }
 Rectangle objectFlagBounds(int index) { return {OptionX, 530.0f + index * 58.0f, OptionWidth, 34.0f}; }
+
+Rectangle dialogueNavButton(int row, int column) {
+    static constexpr std::array<float, 4> widths = {42.0f, 42.0f, 72.0f, 72.0f};
+    static constexpr std::array<float, 4> offsets = {0.0f, 48.0f, 488.0f, 566.0f};
+    return {OptionX + offsets[static_cast<std::size_t>(column)], 126.0f + row * 44.0f,
+            widths[static_cast<std::size_t>(column)], 32.0f};
+}
+
+Rectangle dialogueFieldBounds(int index) {
+    return {OptionX, 264.0f + index * 44.0f, OptionWidth, 32.0f};
+}
+
+Rectangle dialogueToggleBounds(int index) {
+    return {OptionX + index * (OptionWidth * 0.5f + 3.0f), 535.0f,
+            OptionWidth * 0.5f - 3.0f, 30.0f};
+}
+
+Rectangle dialogueNextBounds() { return {OptionX, 575.0f, OptionWidth, 32.0f}; }
 
 Rectangle eraseLightButton() {
     return {OptionX, EraseLightY, OptionWidth, 34.0f};
@@ -200,6 +219,14 @@ std::string shortened(std::string value, std::size_t maximum) {
     if (value.size() <= maximum) return value;
     if (maximum <= 3) return value.substr(0, maximum);
     return value.substr(0, maximum - 3) + "...";
+}
+
+std::string nextStableId(const std::string& prefix, const std::vector<std::string>& existing) {
+    for (int number = 1; number < 100000; ++number) {
+        const auto candidate = prefix + std::to_string(number);
+        if (std::find(existing.begin(), existing.end(), candidate) == existing.end()) return candidate;
+    }
+    return prefix + "new";
 }
 
 std::vector<MaterialButton> materialButtons(SurfaceKind surface, float firstY) {
@@ -548,6 +575,11 @@ void LevelEditor::showStoryLayerForCapture() {
 void LevelEditor::showObjectsLayerForCapture() {
     setLayer(Layer::Objects);
     if (!level_.objects.empty()) selectedObjectIndex_ = 0;
+}
+
+void LevelEditor::showDialogueLayerForCapture() {
+    setLayer(Layer::Dialogue);
+    clampDialogueSelection();
 }
 
 void LevelEditor::loadLevel(const std::string& path) {
@@ -939,7 +971,40 @@ std::string* LevelEditor::activeText() {
         if (textField_ == TextField::TriggerRequiredFlag) return &trigger.requiredFlag;
         if (textField_ == TextField::TriggerSetFlag) return &trigger.setFlag;
     }
+    if (selectedDialogueIndex_ >= 0 && selectedDialogueIndex_ < static_cast<int>(level_.dialogues.size())) {
+        auto& dialogue = level_.dialogues[static_cast<std::size_t>(selectedDialogueIndex_)];
+        if (textField_ == TextField::DialogueName) return &dialogue.name;
+        if (selectedDialogueNodeIndex_ >= 0 && selectedDialogueNodeIndex_ < static_cast<int>(dialogue.nodes.size())) {
+            auto& node = dialogue.nodes[static_cast<std::size_t>(selectedDialogueNodeIndex_)];
+            if (textField_ == TextField::DialogueSpeaker) return &node.speaker;
+            if (textField_ == TextField::DialogueNodeText) return &node.text;
+            if (selectedDialogueChoiceIndex_ >= 0 &&
+                selectedDialogueChoiceIndex_ < static_cast<int>(node.choices.size())) {
+                auto& choice = node.choices[static_cast<std::size_t>(selectedDialogueChoiceIndex_)];
+                if (textField_ == TextField::DialogueChoiceText) return &choice.text;
+                if (textField_ == TextField::DialogueChoiceRequiredFlag) return &choice.requiredFlag;
+                if (textField_ == TextField::DialogueChoiceSetFlag) return &choice.setFlag;
+            }
+        }
+    }
     return nullptr;
+}
+
+void LevelEditor::clampDialogueSelection() {
+    if (level_.dialogues.empty()) {
+        selectedDialogueIndex_ = selectedDialogueNodeIndex_ = selectedDialogueChoiceIndex_ = -1;
+        return;
+    }
+    selectedDialogueIndex_ = std::clamp(selectedDialogueIndex_, 0, static_cast<int>(level_.dialogues.size()) - 1);
+    auto& dialogue = level_.dialogues[static_cast<std::size_t>(selectedDialogueIndex_)];
+    if (dialogue.nodes.empty()) {
+        selectedDialogueNodeIndex_ = selectedDialogueChoiceIndex_ = -1;
+        return;
+    }
+    selectedDialogueNodeIndex_ = std::clamp(selectedDialogueNodeIndex_, 0, static_cast<int>(dialogue.nodes.size()) - 1);
+    auto& node = dialogue.nodes[static_cast<std::size_t>(selectedDialogueNodeIndex_)];
+    selectedDialogueChoiceIndex_ = node.choices.empty() ? -1 :
+        std::clamp(selectedDialogueChoiceIndex_, 0, static_cast<int>(node.choices.size()) - 1);
 }
 
 void LevelEditor::beginTextEdit(TextField field) {
@@ -982,6 +1047,7 @@ void LevelEditor::syncSelectionsFromLevel() {
     selectedFloorMaterial_ = level_.surfaces.floorMaterial;
     selectedCeilingMaterial_ = level_.surfaces.ceilingMaterial;
     selectedCeilingSky_ = level_.surfaces.ceilingMode == CeilingMode::Sky;
+    clampDialogueSelection();
 }
 
 void LevelEditor::setLayer(Layer layer) {
@@ -996,6 +1062,7 @@ void LevelEditor::setLayer(Layer layer) {
         case Layer::Triggers: status_ = "Trigger layer: connect dungeon events to discovery text."; break;
         case Layer::Lights: status_ = "Light layer: place or erase torches cell by cell."; break;
         case Layer::Audio: status_ = "Audio layer: choose the looping music for this level."; break;
+        case Layer::Dialogue: status_ = "Dialogue layer: author branching conversations and story consequences."; break;
     }
 }
 
@@ -1454,6 +1521,7 @@ void LevelEditor::paintCell(int x, int y) {
     else if (layer_ == Layer::Triggers) paintTrigger(x, y);
     else if (layer_ == Layer::Lights) paintLight(x, y);
     else if (layer_ == Layer::Audio) status_ = "Use the Audio panel to select this level's loop.";
+    else if (layer_ == Layer::Dialogue) status_ = "Use the Dialogue panel to edit conversations.";
     else paintSurface(x, y, selectedSurface());
 }
 
@@ -1967,6 +2035,129 @@ void LevelEditor::update() {
                     return;
                 }
             }
+        } else if (layer_ == Layer::Dialogue) {
+            clampDialogueSelection();
+            for (int row = 0; row < 3; ++row) {
+                for (int column = 0; column < 4; ++column) {
+                    if (!CheckCollisionPointRec(mouse, dialogueNavButton(row, column))) continue;
+                    if (row == 0) {
+                        if (column <= 1 && !level_.dialogues.empty()) {
+                            const int count = static_cast<int>(level_.dialogues.size());
+                            selectedDialogueIndex_ = (selectedDialogueIndex_ + (column == 0 ? count - 1 : 1)) % count;
+                            selectedDialogueNodeIndex_ = selectedDialogueChoiceIndex_ = 0;
+                        } else if (column == 2) {
+                            std::vector<std::string> ids;
+                            for (const auto& entry : level_.dialogues) ids.push_back(entry.id);
+                            const auto id = nextStableId("dialogue.", ids);
+                            DialogueDefinition dialogue{id, "New Dialogue", id + ".node.1", {}};
+                            DialogueNode node{dialogue.startNodeId, "Speaker", "Temporary dialogue text.", {}};
+                            node.choices.push_back({id + ".choice.1", "End conversation.", {}, {}, true, {}, true});
+                            dialogue.nodes.push_back(std::move(node));
+                            recordUndo();
+                            level_.dialogues.push_back(std::move(dialogue));
+                            selectedDialogueIndex_ = static_cast<int>(level_.dialogues.size()) - 1;
+                            selectedDialogueNodeIndex_ = selectedDialogueChoiceIndex_ = 0;
+                        } else if (column == 3 && !level_.dialogues.empty()) {
+                            const auto removedId = level_.dialogues[static_cast<std::size_t>(selectedDialogueIndex_)].id;
+                            recordUndo();
+                            level_.dialogues.erase(level_.dialogues.begin() + selectedDialogueIndex_);
+                            for (auto& object : level_.objects)
+                                if (object.dialogueId == removedId) object.dialogueId.clear();
+                            clampDialogueSelection();
+                        }
+                    } else if (row == 1 && selectedDialogueIndex_ >= 0) {
+                        auto& dialogue = level_.dialogues[static_cast<std::size_t>(selectedDialogueIndex_)];
+                        if (column <= 1 && !dialogue.nodes.empty()) {
+                            const int count = static_cast<int>(dialogue.nodes.size());
+                            selectedDialogueNodeIndex_ = (selectedDialogueNodeIndex_ + (column == 0 ? count - 1 : 1)) % count;
+                            selectedDialogueChoiceIndex_ = 0;
+                        } else if (column == 2) {
+                            std::vector<std::string> ids;
+                            for (const auto& entry : dialogue.nodes) ids.push_back(entry.id);
+                            const auto nodeId = nextStableId(dialogue.id + ".node.", ids);
+                            std::vector<std::string> choiceIds;
+                            for (const auto& entry : dialogue.nodes)
+                                for (const auto& choice : entry.choices) choiceIds.push_back(choice.id);
+                            DialogueNode node{nodeId, "Speaker", "Temporary dialogue text.", {}};
+                            node.choices.push_back({nextStableId(dialogue.id + ".choice.", choiceIds),
+                                                   "End conversation.", {}, {}, true, {}, true});
+                            recordUndo();
+                            dialogue.nodes.push_back(std::move(node));
+                            selectedDialogueNodeIndex_ = static_cast<int>(dialogue.nodes.size()) - 1;
+                            selectedDialogueChoiceIndex_ = 0;
+                        } else if (column == 3) {
+                            if (dialogue.nodes.size() <= 1) { status_ = "A dialogue must keep at least one node."; return; }
+                            const auto removedId = dialogue.nodes[static_cast<std::size_t>(selectedDialogueNodeIndex_)].id;
+                            recordUndo();
+                            dialogue.nodes.erase(dialogue.nodes.begin() + selectedDialogueNodeIndex_);
+                            if (dialogue.startNodeId == removedId) dialogue.startNodeId = dialogue.nodes.front().id;
+                            for (auto& node : dialogue.nodes)
+                                for (auto& choice : node.choices)
+                                    if (choice.nextNodeId == removedId) choice.nextNodeId.clear();
+                            clampDialogueSelection();
+                        }
+                    } else if (row == 2 && selectedDialogueIndex_ >= 0 && selectedDialogueNodeIndex_ >= 0) {
+                        auto& dialogue = level_.dialogues[static_cast<std::size_t>(selectedDialogueIndex_)];
+                        auto& node = dialogue.nodes[static_cast<std::size_t>(selectedDialogueNodeIndex_)];
+                        if (column <= 1 && !node.choices.empty()) {
+                            const int count = static_cast<int>(node.choices.size());
+                            selectedDialogueChoiceIndex_ = (selectedDialogueChoiceIndex_ + (column == 0 ? count - 1 : 1)) % count;
+                        } else if (column == 2) {
+                            std::vector<std::string> ids;
+                            for (const auto& entry : dialogue.nodes)
+                                for (const auto& choice : entry.choices) ids.push_back(choice.id);
+                            recordUndo();
+                            node.choices.push_back({nextStableId(dialogue.id + ".choice.", ids),
+                                                   "New choice.", {}, {}, true, {}, true});
+                            selectedDialogueChoiceIndex_ = static_cast<int>(node.choices.size()) - 1;
+                        } else if (column == 3) {
+                            if (node.choices.size() <= 1) { status_ = "A dialogue node must keep at least one choice."; return; }
+                            recordUndo();
+                            node.choices.erase(node.choices.begin() + selectedDialogueChoiceIndex_);
+                            clampDialogueSelection();
+                        }
+                    }
+                    refreshValidation("Dialogue graph updated.");
+                    return;
+                }
+            }
+            if (selectedDialogueIndex_ >= 0) {
+                if (CheckCollisionPointRec(mouse, dialogueFieldBounds(0))) { beginTextEdit(TextField::DialogueName); return; }
+                if (selectedDialogueNodeIndex_ >= 0) {
+                    if (CheckCollisionPointRec(mouse, dialogueFieldBounds(1))) { beginTextEdit(TextField::DialogueSpeaker); return; }
+                    if (CheckCollisionPointRec(mouse, dialogueFieldBounds(2))) { beginTextEdit(TextField::DialogueNodeText); return; }
+                }
+                if (selectedDialogueChoiceIndex_ >= 0) {
+                    if (CheckCollisionPointRec(mouse, dialogueFieldBounds(3))) { beginTextEdit(TextField::DialogueChoiceText); return; }
+                    if (CheckCollisionPointRec(mouse, dialogueFieldBounds(4))) { beginTextEdit(TextField::DialogueChoiceRequiredFlag); return; }
+                    if (CheckCollisionPointRec(mouse, dialogueFieldBounds(5))) { beginTextEdit(TextField::DialogueChoiceSetFlag); return; }
+                    auto& dialogue = level_.dialogues[static_cast<std::size_t>(selectedDialogueIndex_)];
+                    auto& node = dialogue.nodes[static_cast<std::size_t>(selectedDialogueNodeIndex_)];
+                    auto& choice = node.choices[static_cast<std::size_t>(selectedDialogueChoiceIndex_)];
+                    if (CheckCollisionPointRec(mouse, dialogueToggleBounds(0))) {
+                        recordUndo(); choice.requiredFlagValue = !choice.requiredFlagValue;
+                        refreshValidation("Choice condition value changed."); return;
+                    }
+                    if (CheckCollisionPointRec(mouse, dialogueToggleBounds(1))) {
+                        recordUndo(); choice.setFlagValue = !choice.setFlagValue;
+                        refreshValidation("Choice consequence value changed."); return;
+                    }
+                    if (CheckCollisionPointRec(mouse, dialogueNextBounds())) {
+                        recordUndo();
+                        if (choice.nextNodeId.empty()) choice.nextNodeId = dialogue.nodes.front().id;
+                        else {
+                            const auto next = std::find_if(dialogue.nodes.begin(), dialogue.nodes.end(), [&](const auto& entry) {
+                                return entry.id == choice.nextNodeId;
+                            });
+                            if (next == dialogue.nodes.end() || std::next(next) == dialogue.nodes.end()) choice.nextNodeId.clear();
+                            else choice.nextNodeId = std::next(next)->id;
+                        }
+                        refreshValidation(choice.nextNodeId.empty() ? "Choice now ends the conversation."
+                                                                    : "Choice destination changed.");
+                        return;
+                    }
+                }
+            }
         } else if (layer_ == Layer::Lights) {
             if (CheckCollisionPointRec(mouse, eraseLightButton())) {
                 eraseLight_ = true;
@@ -2056,7 +2247,7 @@ void LevelEditor::draw() const {
     drawButton({1100, 20, 128, 28}, "INSPECT", inspectorOpen_, 13);
 
     static constexpr std::array<const char*, LayerCount> layerLabels = {
-        "MAP", "WALL", "FLOOR", "CEIL", "OBJ", "STORY", "EVENT", "LIGHT", "AUDIO",
+        "MAP", "WALL", "FLOOR", "CEIL", "OBJ", "STORY", "EVENT", "LIGHT", "AUDIO", "DLOG",
     };
     for (int index = 0; index < LayerCount; ++index) {
         drawButton(layerButton(index), layerLabels[static_cast<std::size_t>(index)],
@@ -2097,7 +2288,8 @@ void LevelEditor::draw() const {
             DrawRectangleLinesEx(cell, 1.0f, Color{19, 22, 27, 255});
 
             if ((layer_ == Layer::Structure || layer_ == Layer::Objects || layer_ == Layer::Story ||
-                 layer_ == Layer::Triggers || layer_ == Layer::Lights || layer_ == Layer::Audio) &&
+                 layer_ == Layer::Triggers || layer_ == Layer::Lights || layer_ == Layer::Audio ||
+                 layer_ == Layer::Dialogue) &&
                 marker != '.' && marker != '#' &&
                 cellSize >= 14.0f) {
                 const char markerText[2] = {marker, '\0'};
@@ -2110,7 +2302,8 @@ void LevelEditor::draw() const {
     }
 
     if (layer_ == Layer::Structure || layer_ == Layer::Objects || layer_ == Layer::Story ||
-        layer_ == Layer::Triggers || layer_ == Layer::Lights || layer_ == Layer::Audio) {
+        layer_ == Layer::Triggers || layer_ == Layer::Lights || layer_ == Layer::Audio ||
+        layer_ == Layer::Dialogue) {
         if (layer_ == Layer::Lights) {
             const Dungeon lightingDungeon{level_};
             drawAuthoredLightVisibility(level_, lightingDungeon, map, cellSize);
@@ -2312,6 +2505,51 @@ void LevelEditor::draw() const {
             DrawText("Pick an event and click its cell or authored subject.", static_cast<int>(OptionX), 316, 14, Muted);
         }
         DrawText("Blank flags mean unconditional / no consequence.", static_cast<int>(OptionX), 580, 14, Muted);
+    } else if (layer_ == Layer::Dialogue) {
+        DrawText("DIALOGUE GRAPH", static_cast<int>(OptionX), 108, 14, Muted);
+        static constexpr std::array<const char*, 3> rowNames = {"DIALOGUE", "NODE", "CHOICE"};
+        for (int row = 0; row < 3; ++row) {
+            drawButton(dialogueNavButton(row, 0), "<", false, 14);
+            drawButton(dialogueNavButton(row, 1), ">", false, 14);
+            drawButton(dialogueNavButton(row, 2), "ADD", false, 11);
+            drawButton(dialogueNavButton(row, 3), "DELETE", false, 10);
+            DrawText(rowNames[static_cast<std::size_t>(row)], 700, 132 + row * 44, 12, Muted);
+        }
+        if (selectedDialogueIndex_ >= 0 && selectedDialogueIndex_ < static_cast<int>(level_.dialogues.size())) {
+            const auto& dialogue = level_.dialogues[static_cast<std::size_t>(selectedDialogueIndex_)];
+            DrawText(shortened(dialogue.id, 35).c_str(), 790, 132, 12, Accent);
+            drawTextField(dialogueFieldBounds(0), "DIALOGUE NAME", dialogue.name,
+                          textField_ == TextField::DialogueName);
+            if (selectedDialogueNodeIndex_ >= 0 && selectedDialogueNodeIndex_ < static_cast<int>(dialogue.nodes.size())) {
+                const auto& node = dialogue.nodes[static_cast<std::size_t>(selectedDialogueNodeIndex_)];
+                DrawText(shortened(node.id, 35).c_str(), 790, 176, 12, Accent);
+                drawTextField(dialogueFieldBounds(1), "SPEAKER", node.speaker,
+                              textField_ == TextField::DialogueSpeaker);
+                drawTextField(dialogueFieldBounds(2), "NODE TEXT", node.text,
+                              textField_ == TextField::DialogueNodeText);
+                if (selectedDialogueChoiceIndex_ >= 0 &&
+                    selectedDialogueChoiceIndex_ < static_cast<int>(node.choices.size())) {
+                    const auto& choice = node.choices[static_cast<std::size_t>(selectedDialogueChoiceIndex_)];
+                    DrawText(shortened(choice.id, 35).c_str(), 790, 220, 12, Accent);
+                    drawTextField(dialogueFieldBounds(3), "PLAYER CHOICE", choice.text,
+                                  textField_ == TextField::DialogueChoiceText);
+                    drawTextField(dialogueFieldBounds(4), "VISIBLE WHEN FLAG (OPTIONAL)", choice.requiredFlag,
+                                  textField_ == TextField::DialogueChoiceRequiredFlag);
+                    drawTextField(dialogueFieldBounds(5), "CHANGE FLAG (OPTIONAL)", choice.setFlag,
+                                  textField_ == TextField::DialogueChoiceSetFlag);
+                    drawButton(dialogueToggleBounds(0), choice.requiredFlagValue ? "REQUIRES TRUE" : "REQUIRES FALSE",
+                               !choice.requiredFlagValue, 11);
+                    drawButton(dialogueToggleBounds(1), choice.setFlagValue ? "SETS TRUE" : "SETS FALSE",
+                               !choice.setFlagValue, 11);
+                    drawButton(dialogueNextBounds(), shortened("NEXT: " +
+                        (choice.nextNodeId.empty() ? std::string{"END CONVERSATION"} : choice.nextNodeId), 65).c_str(),
+                        false, 12);
+                }
+            }
+        } else {
+            DrawText("Add a dialogue, then assign it to an NPC or lore object in Inspect.",
+                     static_cast<int>(OptionX), 278, 14, Muted);
+        }
     } else if (layer_ == Layer::Lights) {
         DrawText("LIGHT BRUSH", static_cast<int>(OptionX), 112, 14, Muted);
         drawButton(eraseLightButton(), "Erase Light", eraseLight_);
@@ -2388,7 +2626,7 @@ void LevelEditor::draw() const {
         drawButton({OptionX, defaultY, OptionWidth, 36.0f}, "MAKE SELECTION LEVEL DEFAULT", false, 15);
     }
 
-    const bool denseStoryPanel = layer_ == Layer::Objects || layer_ == Layer::Triggers;
+    const bool denseStoryPanel = layer_ == Layer::Objects || layer_ == Layer::Triggers || layer_ == Layer::Dialogue;
     const int validationY = denseStoryPanel ? 636 : 548;
     DrawText(validationErrors_.empty() ? "VALIDATION: READY" : "VALIDATION ISSUES", static_cast<int>(OptionX),
              validationY, 15, validationErrors_.empty() ? Valid : Invalid);
@@ -2496,11 +2734,12 @@ void LevelEditor::updateInspector() {
     if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) return;
     if (CheckCollisionPointRec(mouse, {1175, 112, 45, 30})) { inspectorOpen_ = movingSelection_ = false; return; }
     int action = -1;
-    for (int i = 0; i < 7; ++i)
+    for (int i = 0; i < 8; ++i)
         if (CheckCollisionPointRec(mouse, {610, 255.0f + i*44.0f, 585, 34})) action = i;
     if (action < 0) return;
     int x{}, y{};
     if (!LevelEditing::locate(level_, selection_, x, y)) { inspectorOpen_ = false; status_ = "Selection no longer exists."; return; }
+    if (action >= 7 && selection_.kind != SelectionKind::Object) return;
     if (action == 0) { movingSelection_ = true; status_ = "Click the destination cell. Escape cancels."; return; }
     if (action == 1) {
         auto candidate = level_;
@@ -2538,6 +2777,26 @@ void LevelEditor::updateInspector() {
         if (action == 4) { beginTextEdit(TextField::ObjectText); return; }
         if (action == 5) { beginTextEdit(TextField::ObjectRequiredFlag); return; }
         if (action == 6) { beginTextEdit(TextField::ObjectHiddenFlag); return; }
+        if (action == 7) {
+            if (it->kind == WorldObjectKind::ArrivalPoint || it->kind == WorldObjectKind::LevelTransition ||
+                it->kind == WorldObjectKind::Recruit || it->kind == WorldObjectKind::PartyManagement) {
+                status_ = "This system object cannot launch dialogue directly.";
+                return;
+            }
+            if (level_.dialogues.empty()) { status_ = "Add a dialogue in the DLOG layer first."; return; }
+            recordUndo();
+            if (it->dialogueId.empty()) it->dialogueId = level_.dialogues.front().id;
+            else {
+                const auto current = std::find_if(level_.dialogues.begin(), level_.dialogues.end(), [&](const auto& entry) {
+                    return entry.id == it->dialogueId;
+                });
+                if (current == level_.dialogues.end() || std::next(current) == level_.dialogues.end()) it->dialogueId.clear();
+                else it->dialogueId = std::next(current)->id;
+            }
+            refreshValidation(it->dialogueId.empty() ? "Dialogue assignment cleared."
+                                                       : "Dialogue assigned to world object.");
+            return;
+        }
         if (action != 2) return;
         if (it->kind == WorldObjectKind::Recruit) {
             std::vector<const CharacterDefinition*> recruits;
@@ -2607,8 +2866,8 @@ void LevelEditor::drawInspector() const {
     const auto map = mapBounds(level_);
     const auto size = mapCellSize(level_);
     DrawRectangleLinesEx({map.x+x*size, map.y+y*size, size, size}, 3, Accent);
-    DrawRectangle(585, 103, 650, 510, Panel);
-    DrawRectangleLines(585, 103, 650, 510, Accent);
+    DrawRectangle(585, 103, 650, 580, Panel);
+    DrawRectangleLines(585, 103, 650, 580, Accent);
     DrawText("OBJECT INSPECTOR", 610, 120, 22, Text);
     drawButton({1175, 112, 45, 30}, "X", false, 16);
     std::string title, property;
@@ -2670,12 +2929,18 @@ void LevelEditor::drawInspector() const {
                    textField_ == TextField::ObjectRequiredFlag, 14);
         drawButton({610, 519, 585, 34}, shortened("HIDE WHEN: " + object.hiddenWhenFlag, 58).c_str(),
                    textField_ == TextField::ObjectHiddenFlag, 14);
+        const bool supportsDialogue = object.kind != WorldObjectKind::ArrivalPoint &&
+            object.kind != WorldObjectKind::LevelTransition && object.kind != WorldObjectKind::Recruit &&
+            object.kind != WorldObjectKind::PartyManagement;
+        drawButton({610, 563, 585, 34}, shortened(supportsDialogue ?
+            "DIALOGUE: " + (object.dialogueId.empty() ? std::string{"NONE"} : object.dialogueId) :
+            "DIALOGUE: NOT AVAILABLE FOR SYSTEM OBJECT", 58).c_str(), false, 13);
     }
     DrawText(shortened(detail, 65).c_str(), 610, 218, 16, Accent);
     drawButton({610, 255, 585, 34}, movingSelection_ ? "CLICK DESTINATION ON MAP" : "MOVE", movingSelection_, 16);
     drawButton({610, 299, 585, 34}, "DELETE (UNDOABLE; ATTACHED EVENTS PROTECTED)", false, 14);
     drawButton({610, 343, 585, 34}, property.c_str(), false, 15);
-    DrawText("Right-click to select / cycle. ESC cancels or closes.", 610, 585, 12, Muted);
+    DrawText("Right-click to select / cycle. ESC cancels or closes.", 610, 650, 12, Muted);
 }
 
 } // namespace sv

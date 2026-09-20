@@ -32,7 +32,7 @@ queue in order, and editor-only room mood/purpose are not emitted as dialogue.
 `LevelDocument` owns editor draft/path/history: New and blueprint imports are
 untitled, Save As creates a new identity, and undo/redo restores document identity
 and saved-state. Window close uses the unsaved-work confirmation. Windows
-integration CI for the preceding published slice is green; the current local suite has nine
+integration CI for the preceding published slice is green; the current local suite has eleven
 CTest cases. The project/export slice adds ProjectDocument, native file dialogs,
 a Project panel, level registry/start selection, and player-only Windows export.
 See PROJECT_WORKFLOW.md for use and limitations. The bundled project opens
@@ -49,7 +49,8 @@ events, including through the older Object Erase and door-repainting paths.
 Undo/redo restores complete draft transactions. Inspect also exposes spawn
 facing, door lock, pickup type, enemy archetype/health reset, light type, object
 movement blocking, and existing object name/text editing. Other object-facing
-fields do not yet exist; no dummy facing values were added.
+fields do not yet exist; no dummy facing values were added. Eligible props, shrines, notes,
+corpses, and NPCs can now cycle an authored dialogue assignment in this inspector.
 
 Room/trigger transforms and the first project Character Creator are now local.
 Rooms can be selected, moved and resized; subject-bound EnterRoom events follow
@@ -84,12 +85,12 @@ The current tree includes:
   with grid line-of-sight so a torch does not shine through solid stone
 - a second-pass lighting model with darker ambient, warm torch contribution, softer falloff, directional
   wall-face shading, distance/corner dimming, and per-surface floor/ceiling light sampling
-- level format version 10, which adds trigger-authored true/false story consequences, conditional
-  world-object visibility, and story-unlocked doors/gates on top of stable arrivals, transitions,
-  and recruit references while loading versions 1–9
+- level format version 11, which adds versioned dialogue graphs and world-object dialogue references
+  on top of trigger-authored story consequences and conditional world state while loading versions 1–10
 - queryable authored water cells with depth, flow direction, and volume IDs, ready for later movement,
   audio, light-extinguishing, rendering, and AI rules
-- a title-menu dungeon editor for structure, wall, floor, ceiling, object, story, event, light, and audio layers
+- a title-menu dungeon editor for structure, wall, floor, ceiling, object, story, event, light, audio,
+  and dialogue layers
 - Object brushes for enemies, pickups, locked/unlocked doors, gates, props, shrines, notes, corpses,
   NPCs, recruits, and party-management points; text-bearing objects can be named and written directly
 - Story-room rectangle authoring with room name, purpose, mood, lore note, and intended feeling
@@ -99,6 +100,10 @@ The current tree includes:
   locked doors and gates can accept a named story-unlock fact instead of consuming a key
 - An F4 story-state inspector in creator playtests that lists all known current-level/campaign facts
   and lets creators toggle them to test alternate world states without replaying the whole campaign
+- a raylib-free dialogue state machine plus integrated DLOG layer: stable dialogue/node/choice IDs,
+  branching destinations, true/false choice conditions, true/false story-flag consequences, object
+  assignment, graph validation, a modal runtime conversation screen, and continuing level music;
+  only temporary mechanical test text was authored during verification
 - editor undo/redo, New Level, Save As, and dirty-draft confirmation before reload/new/menu exit
 - a versioned campaign registry and title-screen level selector; Gatehouse is no longer a compiled filename
 - a playable two-level Gatehouse/Underkeep loop with lore, recruitment, party management, return travel,
@@ -168,6 +173,9 @@ The logical player occupies integer cell `(px, py)`. The rendered eye is always 
 - the Audio layer lists supported tracks under `content/audio/music/`; selecting one writes its
   safe relative path into the level and gameplay loops it until returning to the title/editor or
   reaching victory/defeat
+- the DLOG layer creates and navigates dialogues, nodes, and choices. Choice destinations cycle
+  through authored nodes or `END CONVERSATION`; optional story flags control visibility and write
+  consequences. Assign a completed dialogue by right-clicking an eligible world object and using Inspect.
 
 **Audio/music contract:** authored level music is stored as a relative path under `content/audio/`,
 currently selected through the editor's Audio layer from `content/audio/music/`. Supported extensions
@@ -218,7 +226,9 @@ Continue the editor incrementally:
    `AudioCue` IDs, then add event-triggered music swaps for combat, sanctuary, boss, and victory
    states using the level-music path as the default exploration loop.
 8. ~~Add recruitment triggers and a party-management screen using stable character IDs and saved capacity.~~ **Done.**
-9. Extract remaining screen/UI presentation from `Game.cpp` as those screens grow.
+9. Extract remaining screen/UI presentation from `Game.cpp` as those screens grow, including the new
+   dialogue presentation. Dialogue mechanics are now built; authored cinematic framing, portraits,
+   voice, item costs/rewards, and recruitment-as-a-dialogue-action remain future systems work.
 
 The Object/Story/Event milestone follows the same authored-data path first exercised by lights. Two
 deliberate lighting simplifications remain open. A light has no facing, so one placed inside a
@@ -231,7 +241,7 @@ Keep the current 4–64 dimension safety range until larger-map performance and 
 
 ## Non-regression requirements
 
-- Keep the Release build and all ten CTest cases green.
+- Keep the Release build and all eleven CTest cases green.
 - Preserve movement, collision, doors, combat, save/load compatibility, and the centered-eye raycaster.
 - Keep loading older level files; saving always upgrades them to the current version.
 - Keep the single executable and shared `content` folder in the downloadable Windows playtest.

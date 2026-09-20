@@ -21,6 +21,7 @@ public:
     void showLightsLayerForCapture();
     void showStoryLayerForCapture();
     void showObjectsLayerForCapture();
+    void showDialogueLayerForCapture();
     void showProjectPanelForCapture(bool visible) { projectPanelOpen_ = visible; }
     void showInspectorForCapture() {
         if (!level_.objects.empty()) {
@@ -32,7 +33,7 @@ public:
     }
     void closeInspectorForCapture() { inspectorOpen_ = movingSelection_ = false; }
     void showCharacterCreatorForCapture() { projectPanelOpen_ = true; openCharacterCreator(); }
-    void closeCharacterCreatorForCapture() { characterCreatorOpen_ = false; }
+    void closeCharacterCreatorForCapture() { characterCreatorOpen_ = false; projectPanelOpen_ = false; }
     bool consumePlaytestRequest();
     bool consumeExitRequest();
     bool hasUnsavedChanges() const { return document_.dirty(); }
@@ -52,8 +53,9 @@ private:
         Triggers,
         Lights,
         Audio,
+        Dialogue,
     };
-    static constexpr int LayerCount = 9;
+    static constexpr int LayerCount = 10;
 
     enum class StructureBrush {
         Floor,
@@ -101,6 +103,12 @@ private:
         TriggerMessage,
         TriggerRequiredFlag,
         TriggerSetFlag,
+        DialogueName,
+        DialogueSpeaker,
+        DialogueNodeText,
+        DialogueChoiceText,
+        DialogueChoiceRequiredFlag,
+        DialogueChoiceSetFlag,
     };
 
     enum class PendingAction { None, Exit, Reload, NewLevel, Quit, NewProject, OpenProject, OpenLevel, OpenRegistered };
@@ -150,6 +158,7 @@ private:
     std::string* activeText();
     void finishTextEdit();
     bool selectNextTransitionDestination(WorldObject& object);
+    void clampDialogueSelection();
 
     bool hasObjectAt(int x, int y) const;
     bool hasLightAt(int x, int y) const;
@@ -195,6 +204,9 @@ private:
     int selectedObjectIndex_{-1};
     int selectedRoomIndex_{-1};
     int selectedTriggerIndex_{-1};
+    int selectedDialogueIndex_{-1};
+    int selectedDialogueNodeIndex_{-1};
+    int selectedDialogueChoiceIndex_{-1};
     TextField textField_{TextField::None};
     PendingAction pendingAction_{PendingAction::None};
     std::string importStatus_;

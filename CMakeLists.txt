@@ -37,6 +37,7 @@ add_library(stoneveil_core STATIC
   src/CharacterCatalog.cpp
   src/CombatSystem.cpp
   src/CombatTuning.cpp
+  src/Dialogue.cpp
   src/Dungeon.cpp
   src/EnemyType.cpp
   src/EventSystem.cpp
@@ -106,6 +107,7 @@ if (BUILD_TESTING)
   stoneveil_test(stoneveil_character_catalog_tests tests/CharacterCatalogTests.cpp)
   stoneveil_test(stoneveil_recruitment_tests tests/RecruitmentTests.cpp)
   stoneveil_test(stoneveil_campaign_loop_tests tests/CampaignLoopTests.cpp)
+  stoneveil_test(stoneveil_dialogue_tests tests/DialogueTests.cpp)
   add_test(NAME stoneveil_editor_validate
            COMMAND stoneveil --validate "${CMAKE_SOURCE_DIR}/content/levels/gatehouse.svl")
 endif()

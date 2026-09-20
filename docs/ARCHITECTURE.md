@@ -12,7 +12,7 @@ One executable, three entry modes, selected in `src/main.cpp`:
 | --- | --- |
 | `stoneveil.exe` | `Game::run()` — title, party select, gameplay, editor |
 | `stoneveil.exe --validate <level.svl>` | Headless level validation. No window, no raylib init. Used by CTest. |
-| `stoneveil.exe --capture-ui <dir>` | Hidden-window screenshots of title, editor/object/story/light views, Character Creator, gameplay, and Party Management |
+| `stoneveil.exe --capture-ui <dir>` | Hidden-window screenshots of title, editor/object/story/light/dialogue views, Character Creator, gameplay, and Party Management |
 
 The dungeon editor is a **mode of the game**, not a second program (`Game::Mode::Editor`). It shares
 the level file, the material and light catalogs, and the runtime `Dungeon`. Keep it that way — the
@@ -63,6 +63,9 @@ Nothing below depends on `Game`. `Game` depends on all of it.
   operates on the `Dungeon` and `Roster` handed to it.
 - `Material` / `Lighting` / `Portrait` — data catalogs (see below). `Portrait` also owns `PortraitTrack`,
   the pure priority resolver that turns character condition and events into a displayed state.
+- `Dialogue` — authored dialogue/node/choice definitions and the pure `DialogueSession` state machine.
+  It filters choices against campaign `StoryState`, applies boolean consequences, and advances or ends
+  a graph without depending on raylib. In-progress modal state is deliberately transient.
 - `LevelIO` — the versioned `.svl` text format: load, save, validate.
 - `LevelDocument` — editor draft, file identity, save points and bounded undo/redo
   history. It is raylib-free and tested separately. New/imported drafts have no
@@ -96,14 +99,15 @@ Nothing below depends on `Game`. `Game` depends on all of it.
   `PlayMusicStream` calls here rather than scattering them through gameplay code; later asset-backed
   `.wav`/`.ogg` cues should replace the generated tones behind the same `AudioCue` IDs.
 - `LevelEditor` — editor state and its own immediate-mode UI. Owns a draft `LevelDefinition`.
-  Object, Story, and Event layers place gameplay objects, draw named room regions, edit lore text,
+  Object, Story, Event, and Dialogue layers place gameplay objects, draw named room regions, edit lore text,
   and connect enter/open/kill/pickup/interact events to discovery messages. The Audio layer accepts
   supported files dropped onto the editor window and copies them into `content/audio/music/`.
   The Lights layer includes a diagnostic overlay: warm cells are actually reached by runtime light
   sampling, red-crossed cells are inside a light radius but blocked by grid occlusion, and rings show
   range only. The Audio layer scans `content/audio/music/` for `.wav`, `.ogg`, `.mp3`, and `.flac`
-  tracks and stores a safe `content/audio/...` relative path on the level.
-- `Game` — mode machine, input, HUD, title/party/end screens. Coordinates; does not simulate.
+  tracks and stores a safe `content/audio/...` relative path on the level. Dialogue authoring uses stable
+  graph IDs and assigns a completed graph to an eligible world object through Inspect.
+- `Game` — mode machine, input, HUD, title/party/dialogue/end screens. Coordinates; does not simulate.
 
 ## The testable/presentation boundary is enforced by CMake, not by folders
 
@@ -157,13 +161,15 @@ disabled during a playtest, deliberately — see `Game::editorPlaytest_`.
 
 **Format versions**
 
-- `.svl` is at **version 10**. Versions 1–9 still load; saving always writes the current version.
+- `.svl` is at **version 11**. Versions 1–10 still load; saving always writes the current version.
   Backward loading is a non-regression requirement. Versions 3–5 added enemy archetypes, water, and
   music. Version 6 adds stable pickup/enemy/door IDs, door lock/gate metadata, world objects, story
   rooms, and triggers. Version 7 adds stable character references for recruit objects. Version 8 adds
   editor-only arrival markers and level transitions using registered level and arrival IDs. Version 9 adds
   named required/set story flags to triggers. Version 10 adds true/false consequences, conditional
-  world-object visibility, and story-unlock flags for doors and gates. Older levels
+  world-object visibility, and story-unlock flags for doors and gates. Version 11 appends object
+  dialogue references and a `DIALOGUES` graph section with stable node/choice identities, conditional
+  choices, boolean consequences, and node destinations. Older levels
   receive deterministic legacy IDs and locked-door metadata in memory.
 - `.campaign` is at **version 1** and lists stable level IDs, display names, a starting level, and safe
   relative level paths. The title screen can cycle registered levels without recompilation.
@@ -200,7 +206,7 @@ cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-raylib 5.5 is fetched by CMake on first configure. Ten Release-active CTest cases include core,
+raylib 5.5 is fetched by CMake on first configure. Eleven Release-active CTest cases include core,
 events, compatibility, editor/document, project, recruitment, and the end-to-end campaign loop;
 `stoneveil_editor_validate` runs the real executable headlessly against the shipped Gatehouse.
 CI is `.github/workflows/windows-build.yml` and must keep uploading the `STONEVEIL-Windows-Playtest`
@@ -212,7 +218,7 @@ that is pre-existing and harmless.
 
 ## Known rough edges
 
-- `Game.cpp` remains a large coordinator (~950 lines) and holds all screen drawing. Extracting screens is a named next step.
+- `Game.cpp` remains a large coordinator and holds all screen drawing. Extracting screens is a named next step.
 - Authored world objects have editor symbols, interaction text, and simple first-person placeholder
   billboards, but no sprite catalog or final first-person art yet.
 - `frontEnemyIndex` is called with `maxDistance = 1` for attacks but `6` for drawing the enemy, so the

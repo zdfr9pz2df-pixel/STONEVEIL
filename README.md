@@ -30,6 +30,8 @@ STONEVEIL is a systems-first C++ dungeon crawler prototype inspired by the feel 
 - Story rooms with names, purpose, mood, lore notes, and intended feeling
 - Event triggers for room/cell entry, doors, kills, pickups, and object interaction
 - In-editor text tools for notes, inscriptions, dialogue, room lore, and discovery messages
+- Branching dialogue graphs with conditional choices, story-flag consequences, object assignment,
+  validation, and an in-game conversation screen
 - Undo/redo, New Level, Save As, and unsaved-draft warnings
 - Versioned campaign registry with a title-screen level selector
 - Arrival-point and level-transition brushes whose destinations come from registered project levels
@@ -81,7 +83,7 @@ Run `stoneveil.exe` and click **Dungeon Editor** on the main menu (or press `E`)
 
 | Input | Action |
 | --- | --- |
-| Layer buttons | Edit map, surfaces, objects, story rooms, events, lights, or audio |
+| Layer buttons | Edit map, surfaces, objects, story rooms, events, lights, audio, or dialogue |
 | Left click/drag on map | Paint the selected brush, material, or light |
 | W- / W+ / H- / H+ | Resize the map one cell at a time, from 4×4 to 64×64 |
 | Random | Randomize surface defaults and per-cell wall/floor/ceiling variation |
@@ -105,6 +107,11 @@ then edit its story purpose and intended feeling. On Event, choose the event typ
 subject or cell, and edit the message that appears during playtesting.
 Selected world objects can require a true story flag or hide after a flag becomes true. Door and gate
 inspectors accept an optional story-unlock flag. Event consequences can set their chosen flag true or false.
+
+On DLOG, add a dialogue, navigate its nodes and player choices, edit speaker/text, and cycle each
+choice's next node or end state. Optional flags can show a choice only when true/false and set or
+clear a story flag when chosen. Right-click a prop, shrine, note, corpse, or NPC and use Inspect to
+assign the dialogue. Playtesting uses the real modal conversation screen; level music keeps looping.
 
 To import music or ambience, drag `.wav`, `.ogg`, `.mp3`, or `.flac` files onto the editor window,
 then select the imported track on the Audio layer. Texture/sprite/portrait import will extend this same pipeline later.

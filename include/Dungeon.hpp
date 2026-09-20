@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EnemyType.hpp"
+#include "Dialogue.hpp"
 #include "Lighting.hpp"
 #include "Material.hpp"
 #include "WorldAuthoring.hpp"
@@ -107,6 +108,7 @@ struct LevelDefinition {
     std::vector<WorldObject> objects;
     std::vector<StoryRoom> rooms;
     std::vector<StoryTrigger> triggers;
+    std::vector<DialogueDefinition> dialogues;
 };
 
 const LevelDefinition& levelOneDefinition();
@@ -155,6 +157,8 @@ public:
     const std::vector<WorldObject>& objects() const { return objects_; }
     const std::vector<StoryRoom>& rooms() const { return rooms_; }
     const std::vector<StoryTrigger>& triggers() const { return triggers_; }
+    const std::vector<DialogueDefinition>& dialogues() const { return dialogues_; }
+    const DialogueDefinition* dialogue(const std::string& id) const;
 
 private:
     std::size_t tileIndex(int x, int y) const;
@@ -178,6 +182,7 @@ private:
     std::vector<WorldObject> objects_;
     std::vector<StoryRoom> rooms_;
     std::vector<StoryTrigger> triggers_;
+    std::vector<DialogueDefinition> dialogues_;
 };
 
 } // namespace sv

@@ -37,6 +37,7 @@ std::string legacyLevel(int version) {
         out << "DOORS 1\n\"door.legacy.1\" 2 1 DOOR 1";
         if (version >= 10) out << " \"\"";
         out << "\nOBJECTS 0\nROOMS 0\nTRIGGERS 0\n";
+        if (version >= 11) out << "DIALOGUES 0\n";
     }
     out << "END\n";
     return out.str();
@@ -65,7 +66,7 @@ void oldFormatsAndMalformedInput() {
     const char* path = "compat-level.svl";
     LevelDefinition level;
     std::string error;
-    for (int version = 1; version <= 10; ++version) {
+    for (int version = 1; version <= 11; ++version) {
         writeFixture(path, legacyLevel(version));
         CHECK(LevelIO::load(path, level, error));
         CHECK(level.doors.size() == 1 && level.doors[0].id == "door.legacy.1");

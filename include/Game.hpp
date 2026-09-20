@@ -7,6 +7,7 @@
 #include "Character.hpp"
 #include "CombatSystem.hpp"
 #include "Dungeon.hpp"
+#include "Dialogue.hpp"
 #include "LevelEditor.hpp"
 #include "Party.hpp"
 #include "Player.hpp"
@@ -31,7 +32,7 @@ public:
     bool captureUiSnapshots(const std::string& outputDirectory);
 
 private:
-    enum class Mode { Title, NewGame, Playing, PartyManagement, Victory, Defeat, Editor };
+    enum class Mode { Title, NewGame, Playing, Dialogue, PartyManagement, Victory, Defeat, Editor };
 
     void resetWorld();
     void resetWorld(const LevelDefinition& level);
@@ -52,10 +53,12 @@ private:
     void update(float dt);
     void updateNewGame();
     void updatePlaying(float dt);
+    void updateDialogue();
     void updatePartyManagement();
     void draw() const;
     void drawWorld() const;
     void drawHud() const;
+    void drawDialogue() const;
     void refreshStoryInspector();
     void updateStoryInspector();
     void drawStoryInspector() const;
@@ -70,6 +73,7 @@ private:
     void attack();
     void drinkPotion();
     void collectPickup();
+    bool beginDialogue(const std::string& dialogueId);
     void enterMode(Mode mode);
     bool save() const;
     bool load();
@@ -113,6 +117,8 @@ private:
     bool storyInspectorOpen_{false};
     int storyInspectorCursor_{0};
     std::vector<std::string> storyInspectorKeys_;
+    DialogueSession dialogueSession_{};
+    int dialogueCursor_{0};
 };
 
 } // namespace sv

@@ -20,7 +20,7 @@
 
 namespace sv {
 namespace {
-constexpr int LevelFormatVersion = 10;
+constexpr int LevelFormatVersion = 11;
 constexpr int MinimumLevelFormatVersion = 1;
 constexpr std::size_t MaxLevelObjects = 1024;
 
@@ -308,6 +308,7 @@ bool LevelIO::load(const std::string& path, LevelDefinition& level, std::string&
                 std::quoted(object.destinationArrivalId);
             if (input && version >= 10)
                 input >> std::quoted(object.requiredFlag) >> std::quoted(object.hiddenWhenFlag);
+            if (input && version >= 11) input >> std::quoted(object.dialogueId);
             if (!input || !parseWorldObjectKind(kind, object.kind) || (blocks != 0 && blocks != 1)) {
                 error = "Invalid world object entry.";
                 return false;
@@ -356,6 +357,52 @@ bool LevelIO::load(const std::string& path, LevelDefinition& level, std::string&
             trigger.once = once != 0;
             trigger.setFlagValue = setFlagValue != 0;
             loaded.triggers.push_back(std::move(trigger));
+        }
+
+        if (version >= 11) {
+            std::size_t dialogueCount{};
+            if (!expect(input, "DIALOGUES", error) || !(input >> dialogueCount) || dialogueCount > MaxLevelObjects) {
+                error = "Invalid dialogue list.";
+                return false;
+            }
+            for (std::size_t i = 0; i < dialogueCount; ++i) {
+                DialogueDefinition dialogue;
+                std::size_t nodeCount{};
+                if (!expect(input, "DIALOGUE", error) ||
+                    !(input >> std::quoted(dialogue.id) >> std::quoted(dialogue.name) >>
+                      std::quoted(dialogue.startNodeId) >> nodeCount) || nodeCount > MaxLevelObjects) {
+                    error = "Invalid dialogue entry.";
+                    return false;
+                }
+                for (std::size_t nodeIndex = 0; nodeIndex < nodeCount; ++nodeIndex) {
+                    DialogueNode node;
+                    std::size_t choiceCount{};
+                    if (!expect(input, "NODE", error) ||
+                        !(input >> std::quoted(node.id) >> std::quoted(node.speaker) >>
+                          std::quoted(node.text) >> choiceCount) || choiceCount > MaxLevelObjects) {
+                        error = "Invalid dialogue node.";
+                        return false;
+                    }
+                    for (std::size_t choiceIndex = 0; choiceIndex < choiceCount; ++choiceIndex) {
+                        DialogueChoice choice;
+                        int requiredValue{};
+                        int setValue{};
+                        if (!expect(input, "CHOICE", error) ||
+                            !(input >> std::quoted(choice.id) >> std::quoted(choice.text) >>
+                              std::quoted(choice.nextNodeId) >> std::quoted(choice.requiredFlag) >>
+                              requiredValue >> std::quoted(choice.setFlag) >> setValue) ||
+                            (requiredValue != 0 && requiredValue != 1) || (setValue != 0 && setValue != 1)) {
+                            error = "Invalid dialogue choice.";
+                            return false;
+                        }
+                        choice.requiredFlagValue = requiredValue != 0;
+                        choice.setFlagValue = setValue != 0;
+                        node.choices.push_back(std::move(choice));
+                    }
+                    dialogue.nodes.push_back(std::move(node));
+                }
+                loaded.dialogues.push_back(std::move(dialogue));
+            }
         }
     } else {
         for (std::size_t i = 0; i < loaded.pickups.size(); ++i) {
@@ -447,7 +494,8 @@ bool LevelIO::save(const std::string& path, const LevelDefinition& level, std::s
                << object.y << ' ' << (object.blocksMovement ? 1 : 0) << ' ' << std::quoted(object.name) << ' '
                << std::quoted(object.text) << ' ' << object.characterId << ' ' << object.facing << ' '
                << std::quoted(object.destinationLevelId) << ' ' << std::quoted(object.destinationArrivalId) << ' '
-               << std::quoted(object.requiredFlag) << ' ' << std::quoted(object.hiddenWhenFlag) << '\n';
+               << std::quoted(object.requiredFlag) << ' ' << std::quoted(object.hiddenWhenFlag) << ' '
+               << std::quoted(object.dialogueId) << '\n';
     }
     output << "ROOMS " << level.rooms.size() << '\n';
     for (const auto& room : level.rooms) {
@@ -462,6 +510,21 @@ bool LevelIO::save(const std::string& path, const LevelDefinition& level, std::s
                << trigger.y << ' ' << std::quoted(trigger.subjectId) << ' ' << (trigger.once ? 1 : 0) << ' '
                << std::quoted(trigger.message) << ' ' << std::quoted(trigger.requiredFlag) << ' '
                << std::quoted(trigger.setFlag) << ' ' << (trigger.setFlagValue ? 1 : 0) << '\n';
+    }
+    output << "DIALOGUES " << level.dialogues.size() << '\n';
+    for (const auto& dialogue : level.dialogues) {
+        output << "DIALOGUE " << std::quoted(dialogue.id) << ' ' << std::quoted(dialogue.name) << ' '
+               << std::quoted(dialogue.startNodeId) << ' ' << dialogue.nodes.size() << '\n';
+        for (const auto& node : dialogue.nodes) {
+            output << "NODE " << std::quoted(node.id) << ' ' << std::quoted(node.speaker) << ' '
+                   << std::quoted(node.text) << ' ' << node.choices.size() << '\n';
+            for (const auto& choice : node.choices) {
+                output << "CHOICE " << std::quoted(choice.id) << ' ' << std::quoted(choice.text) << ' '
+                       << std::quoted(choice.nextNodeId) << ' ' << std::quoted(choice.requiredFlag) << ' '
+                       << (choice.requiredFlagValue ? 1 : 0) << ' ' << std::quoted(choice.setFlag) << ' '
+                       << (choice.setFlagValue ? 1 : 0) << '\n';
+            }
+        }
     }
     output << "END\n";
     if (!output) {
@@ -703,6 +766,65 @@ std::vector<std::string> LevelIO::validate(const LevelDefinition& level) {
             errors.push_back("Story trigger required flags use letters, numbers, dots, dashes, and underscores only.");
         if (!trigger.setFlag.empty() && !StoryState::validKey(trigger.setFlag))
             errors.push_back("Story trigger consequence flags use letters, numbers, dots, dashes, and underscores only.");
+    }
+
+    std::set<std::string> dialogueIds;
+    for (const auto& dialogue : level.dialogues) {
+        validateId(dialogue.id, "Dialogue");
+        dialogueIds.insert(dialogue.id);
+        if (dialogue.name.empty()) errors.push_back("Dialogues need a display name.");
+        std::set<std::string> nodeIds;
+        std::set<std::string> choiceIds;
+        for (const auto& node : dialogue.nodes) {
+            if (node.id.empty()) errors.push_back("Dialogue nodes need stable IDs.");
+            else if (!nodeIds.insert(node.id).second) errors.push_back("Dialogue node IDs must be unique within a dialogue.");
+            if (node.speaker.empty()) errors.push_back("Dialogue nodes need a speaker.");
+            if (node.text.empty()) errors.push_back("Dialogue nodes need text.");
+            if (node.choices.empty()) errors.push_back("Dialogue nodes need at least one choice.");
+            for (const auto& choice : node.choices) {
+                if (choice.id.empty()) errors.push_back("Dialogue choices need stable IDs.");
+                else if (!choiceIds.insert(choice.id).second)
+                    errors.push_back("Dialogue choice IDs must be unique within a dialogue.");
+                if (choice.text.empty()) errors.push_back("Dialogue choices need text.");
+                if (!choice.requiredFlag.empty() && !StoryState::validKey(choice.requiredFlag))
+                    errors.push_back("Dialogue choice required flags use letters, numbers, dots, dashes, and underscores only.");
+                if (!choice.setFlag.empty() && !StoryState::validKey(choice.setFlag))
+                    errors.push_back("Dialogue choice consequence flags use letters, numbers, dots, dashes, and underscores only.");
+            }
+        }
+        if (dialogue.startNodeId.empty() || nodeIds.find(dialogue.startNodeId) == nodeIds.end())
+            errors.push_back("A dialogue start node does not exist.");
+        for (const auto& node : dialogue.nodes) {
+            for (const auto& choice : node.choices) {
+                if (!choice.nextNodeId.empty() && nodeIds.find(choice.nextNodeId) == nodeIds.end())
+                    errors.push_back("A dialogue choice points to a missing node.");
+            }
+        }
+        if (nodeIds.find(dialogue.startNodeId) != nodeIds.end()) {
+            std::set<std::string> reachable;
+            std::queue<std::string> frontier;
+            frontier.push(dialogue.startNodeId);
+            reachable.insert(dialogue.startNodeId);
+            while (!frontier.empty()) {
+                const auto current = frontier.front();
+                frontier.pop();
+                const auto* node = findDialogueNode(dialogue, current);
+                if (node == nullptr) continue;
+                for (const auto& choice : node->choices) {
+                    if (!choice.nextNodeId.empty() && nodeIds.find(choice.nextNodeId) != nodeIds.end() &&
+                        reachable.insert(choice.nextNodeId).second) frontier.push(choice.nextNodeId);
+                }
+            }
+            if (reachable.size() != nodeIds.size()) errors.push_back("A dialogue contains an unreachable node.");
+        }
+    }
+    for (const auto& object : level.objects) {
+        if (object.dialogueId.empty()) continue;
+        if (dialogueIds.find(object.dialogueId) == dialogueIds.end())
+            errors.push_back("A world object references a missing dialogue.");
+        if (object.kind == WorldObjectKind::ArrivalPoint || object.kind == WorldObjectKind::LevelTransition ||
+            object.kind == WorldObjectKind::Recruit || object.kind == WorldObjectKind::PartyManagement)
+            errors.push_back("System objects cannot launch dialogue directly; use a prop, shrine, note, corpse, or NPC.");
     }
 
     if (validDimensions && coordinateIsWalkable(level, level.spawnX, level.spawnY)) {

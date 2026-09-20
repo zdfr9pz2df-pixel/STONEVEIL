@@ -52,6 +52,22 @@ bool configureWorldEvents(const Dungeon& dungeon, EventRuntime& runtime) {
         }
     }
     for (const auto& object : dungeon.objects()) {
+        if (!object.dialogueId.empty()) {
+            EventDefinition dialogueEvent;
+            dialogueEvent.id = object.id + ".dialogue";
+            dialogueEvent.name = object.name;
+            dialogueEvent.trigger = {EventTriggerType::InteractObject, -1, -1, object.id};
+            dialogueEvent.occurrence = EventOccurrence::EveryTime;
+            // Let authored interaction consequences run first, then consume the
+            // interaction before fallback object text is shown.
+            dialogueEvent.priority = -100;
+            dialogueEvent.stopAfterRun = true;
+            EventAction dialogueAction;
+            dialogueAction.type = EventActionType::StartDialogue;
+            dialogueAction.targetId = object.dialogueId;
+            dialogueEvent.actions.push_back(std::move(dialogueAction));
+            if (!configured.addEvent(std::move(dialogueEvent))) return false;
+        }
         if (object.kind != WorldObjectKind::Recruit && object.kind != WorldObjectKind::PartyManagement &&
             object.kind != WorldObjectKind::LevelTransition) continue;
         EventDefinition event;
@@ -134,6 +150,11 @@ EventFireResult dispatchWorldEvent(EventRuntime& runtime, const EventContext& co
                 if (presentation.message && !action.text.empty()) presentation.message(action.text);
                 if (!presentation.transitionLevel || !presentation.transitionLevel(action.targetId, action.assetId)) {
                     if (presentation.message) presentation.message("That passage is not connected to a valid arrival point.");
+                }
+                break;
+            case EventActionType::StartDialogue:
+                if (!presentation.startDialogue || !presentation.startDialogue(action.targetId)) {
+                    if (presentation.message) presentation.message("That conversation is not available.");
                 }
                 break;
             default:

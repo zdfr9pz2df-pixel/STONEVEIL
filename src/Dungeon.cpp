@@ -21,7 +21,8 @@ Dungeon::Dungeon(const LevelDefinition& definition)
       doors_(definition.doors),
       objects_(definition.objects),
       rooms_(definition.rooms),
-      triggers_(definition.triggers) {
+      triggers_(definition.triggers),
+      dialogues_(definition.dialogues) {
     for (int y = 0; y < height_; ++y) {
         for (int x = 0; x < width_; ++x) {
             const bool hasRow = static_cast<std::size_t>(y) < definition.map.size();
@@ -163,6 +164,13 @@ const StoryRoom* Dungeon::roomAt(int x, int y) const {
         if (room.contains(x, y)) return &room;
     }
     return nullptr;
+}
+
+const DialogueDefinition* Dungeon::dialogue(const std::string& id) const {
+    const auto found = std::find_if(dialogues_.begin(), dialogues_.end(), [&](const auto& dialogue) {
+        return dialogue.id == id;
+    });
+    return found == dialogues_.end() ? nullptr : &*found;
 }
 
 } // namespace sv

@@ -49,6 +49,8 @@ struct WorldObject {
     // a hidden flag removes the object once it becomes true.
     std::string requiredFlag;
     std::string hiddenWhenFlag;
+    // Optional authored conversation launched by interacting with this object.
+    std::string dialogueId;
 };
 
 struct StoryRoom {

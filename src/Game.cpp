@@ -59,6 +59,37 @@ Rectangle titleButtonRectangle(int index) {
 Rectangle campaignPreviousButton() { return {405.0f, 286.0f, 44.0f, 30.0f}; }
 Rectangle campaignNextButton() { return {831.0f, 286.0f, 44.0f, 30.0f}; }
 
+int drawWrappedText(const std::string& text, int x, int y, int maxWidth, int fontSize, int lineHeight, Color color) {
+    std::string line;
+    std::string word;
+    auto flushWord = [&]() {
+        if (word.empty()) return;
+        const std::string candidate = line.empty() ? word : line + " " + word;
+        if (!line.empty() && MeasureText(candidate.c_str(), fontSize) > maxWidth) {
+            DrawText(line.c_str(), x, y, fontSize, color);
+            y += lineHeight;
+            line = word;
+        } else line = candidate;
+        word.clear();
+    };
+    for (const char character : text) {
+        if (character == ' ' || character == '\n') {
+            flushWord();
+            if (character == '\n') {
+                if (!line.empty()) DrawText(line.c_str(), x, y, fontSize, color);
+                y += lineHeight;
+                line.clear();
+            }
+        } else word.push_back(character);
+    }
+    flushWord();
+    if (!line.empty()) {
+        DrawText(line.c_str(), x, y, fontSize, color);
+        y += lineHeight;
+    }
+    return y;
+}
+
 std::string resolveContentPath(const std::string& relativePath) {
     std::vector<std::filesystem::path> candidates;
     candidates.emplace_back(std::filesystem::path{GetApplicationDirectory()} / relativePath);
@@ -144,6 +175,8 @@ void Game::resetWorld() {
 }
 
 void Game::resetWorld(const LevelDefinition& level) {
+    dialogueSession_.end();
+    dialogueCursor_ = 0;
     dungeon_ = Dungeon{level};
     levelMusicPath_ = dungeon_.musicPath();
     player_ = PlayerState{dungeon_.spawnX(), dungeon_.spawnY(), dungeon_.spawnDirection()};
@@ -315,7 +348,9 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     const auto objectEditorPath = directory / "object-editor.png";
     const auto lightDebugPath = directory / "lighting-debug.png";
     const auto storyEditorPath = directory / "story-editor.png";
+    const auto dialogueEditorPath = directory / "dialogue-editor.png";
     const auto gameplayPath = directory / "gameplay-lighting.png";
+    const auto dialogueRuntimePath = directory / "dialogue-runtime.png";
     const auto storyInspectorPath = directory / "story-state-inspector.png";
     const auto partyManagementPath = directory / "party-management.png";
     const auto rawWarmupPath = originalDirectory / "stoneveil-capture-warmup.png";
@@ -324,7 +359,9 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     const auto rawObjectEditorPath = originalDirectory / "stoneveil-object-editor.png";
     const auto rawLightDebugPath = originalDirectory / "stoneveil-lighting-debug.png";
     const auto rawStoryEditorPath = originalDirectory / "stoneveil-story-editor.png";
+    const auto rawDialogueEditorPath = originalDirectory / "stoneveil-dialogue-editor.png";
     const auto rawGameplayPath = originalDirectory / "stoneveil-gameplay-lighting.png";
+    const auto rawDialogueRuntimePath = originalDirectory / "stoneveil-dialogue-runtime.png";
     const auto rawStoryInspectorPath = originalDirectory / "stoneveil-story-state-inspector.png";
     const auto rawPartyManagementPath = originalDirectory / "stoneveil-party-management.png";
 
@@ -333,7 +370,9 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     std::filesystem::remove(objectEditorPath, error);
     std::filesystem::remove(lightDebugPath, error);
     std::filesystem::remove(storyEditorPath, error);
+    std::filesystem::remove(dialogueEditorPath, error);
     std::filesystem::remove(gameplayPath, error);
+    std::filesystem::remove(dialogueRuntimePath, error);
     std::filesystem::remove(storyInspectorPath, error);
     std::filesystem::remove(partyManagementPath, error);
     std::filesystem::remove(rawWarmupPath, error);
@@ -342,7 +381,9 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     std::filesystem::remove(rawObjectEditorPath, error);
     std::filesystem::remove(rawLightDebugPath, error);
     std::filesystem::remove(rawStoryEditorPath, error);
+    std::filesystem::remove(rawDialogueEditorPath, error);
     std::filesystem::remove(rawGameplayPath, error);
+    std::filesystem::remove(rawDialogueRuntimePath, error);
     std::filesystem::remove(rawStoryInspectorPath, error);
     std::filesystem::remove(rawPartyManagementPath, error);
     error.clear();
@@ -392,6 +433,10 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     draw();
     draw();
     TakeScreenshot("stoneveil-story-editor.png");
+    if (editor_ != nullptr) editor_->showDialogueLayerForCapture();
+    draw();
+    draw();
+    TakeScreenshot("stoneveil-dialogue-editor.png");
     if (runtimeOnly_) {
         prepareNewGame();
         beginNewGame();
@@ -399,6 +444,15 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     draw();
     draw();
     TakeScreenshot("stoneveil-gameplay-lighting.png");
+    if (!dungeon_.dialogues().empty() && beginDialogue(dungeon_.dialogues().front().id)) {
+        draw();
+        draw();
+        TakeScreenshot("stoneveil-dialogue-runtime.png");
+        dialogueSession_.end();
+        enterMode(Mode::Playing);
+        std::filesystem::copy_file(rawDialogueRuntimePath, dialogueRuntimePath,
+                                  std::filesystem::copy_options::overwrite_existing, error);
+    }
     if (!runtimeOnly_) {
         storyState_.set("capture.story-example", false);
         refreshStoryInspector();
@@ -436,6 +490,10 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
                                    std::filesystem::copy_options::overwrite_existing, error);
     }
     if (!error) {
+        std::filesystem::copy_file(rawDialogueEditorPath, dialogueEditorPath,
+                                   std::filesystem::copy_options::overwrite_existing, error);
+    }
+    if (!error) {
         std::filesystem::copy_file(rawGameplayPath, gameplayPath,
                                    std::filesystem::copy_options::overwrite_existing, error);
     }
@@ -450,7 +508,7 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     const bool captured = !error && std::filesystem::exists(titlePath) &&
         std::filesystem::exists(editorPath) && std::filesystem::exists(objectEditorPath) &&
         std::filesystem::exists(lightDebugPath) &&
-        std::filesystem::exists(storyEditorPath) &&
+        std::filesystem::exists(storyEditorPath) && std::filesystem::exists(dialogueEditorPath) &&
         std::filesystem::exists(gameplayPath) && std::filesystem::exists(partyManagementPath) &&
         (runtimeOnly_ || std::filesystem::exists(storyInspectorPath));
     std::filesystem::remove(rawWarmupPath, error);
@@ -459,7 +517,9 @@ bool Game::captureUiSnapshots(const std::string& outputDirectory) {
     std::filesystem::remove(rawObjectEditorPath, error);
     std::filesystem::remove(rawLightDebugPath, error);
     std::filesystem::remove(rawStoryEditorPath, error);
+    std::filesystem::remove(rawDialogueEditorPath, error);
     std::filesystem::remove(rawGameplayPath, error);
+    std::filesystem::remove(rawDialogueRuntimePath, error);
     std::filesystem::remove(rawStoryInspectorPath, error);
     std::filesystem::remove(rawPartyManagementPath, error);
     audio_.shutdown();
@@ -553,6 +613,10 @@ void Game::update(float dt) {
         updatePartyManagement();
         return;
     }
+    if (mode_ == Mode::Dialogue) {
+        updateDialogue();
+        return;
+    }
 
     if (mode_ == Mode::Victory || mode_ == Mode::Defeat) {
         if (editorPlaytest_) {
@@ -572,6 +636,60 @@ void Game::update(float dt) {
     }
 
     updatePlaying(dt);
+}
+
+void Game::updateDialogue() {
+    if (!dialogueSession_.active()) {
+        enterMode(Mode::Playing);
+        return;
+    }
+    const auto choices = dialogueSession_.visibleChoices(storyState_);
+    if (choices.empty()) {
+        dialogueSession_.end();
+        setMessage("The conversation cannot continue because no choices are currently available.");
+        enterMode(Mode::Playing);
+        return;
+    }
+    dialogueCursor_ = std::clamp(dialogueCursor_, 0, static_cast<int>(choices.size()) - 1);
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        dialogueSession_.end();
+        audio_.play(AudioCue::UiBack);
+        enterMode(Mode::Playing);
+        return;
+    }
+    if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
+        dialogueCursor_ = (dialogueCursor_ + static_cast<int>(choices.size()) - 1) % static_cast<int>(choices.size());
+        audio_.play(AudioCue::Turn);
+    }
+    if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+        dialogueCursor_ = (dialogueCursor_ + 1) % static_cast<int>(choices.size());
+        audio_.play(AudioCue::Turn);
+    }
+    bool choose = IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        const auto mouse = GetMousePosition();
+        constexpr int visibleRows = 3;
+        const int first = std::clamp(dialogueCursor_ - 1, 0,
+            std::max(0, static_cast<int>(choices.size()) - visibleRows));
+        for (int row = 0; row < visibleRows && first + row < static_cast<int>(choices.size()); ++row) {
+            const int index = first + row;
+            const Rectangle bounds{170.0f, 420.0f + row * 50.0f, 940.0f, 40.0f};
+            if (CheckCollisionPointRec(mouse, bounds)) {
+                dialogueCursor_ = index;
+                choose = true;
+                break;
+            }
+        }
+    }
+    if (choose) {
+        if (!dialogueSession_.choose(static_cast<std::size_t>(dialogueCursor_), storyState_)) {
+            setMessage("That dialogue choice could not be applied.");
+            dialogueSession_.end();
+        }
+        audio_.play(AudioCue::UiConfirm);
+        dialogueCursor_ = 0;
+        if (!dialogueSession_.active()) enterMode(Mode::Playing);
+    }
 }
 
 void Game::updateNewGame() {
@@ -895,6 +1013,7 @@ bool Game::fireStoryTrigger(TriggerEvent event, int x, int y, const std::string&
 EventFireResult Game::fireEvent(const EventContext& context) {
     std::string pendingLevelTransition;
     std::string pendingArrival;
+    std::string pendingDialogue;
     WorldEventPresentation presentation;
     presentation.message = [this](const std::string& text) {
         if (storyMessages_.empty()) storyMessageTimer_ = 4.0f;
@@ -922,10 +1041,24 @@ EventFireResult Game::fireEvent(const EventContext& context) {
         pendingArrival = arrivalId;
         return !levelId.empty() && !arrivalId.empty();
     };
+    presentation.startDialogue = [&](const std::string& dialogueId) {
+        pendingDialogue = dialogueId;
+        return dungeon_.dialogue(dialogueId) != nullptr;
+    };
     const auto result = dispatchWorldEvent(events_, context, dungeon_, keys_, presentation, &storyState_);
     if (!pendingLevelTransition.empty() && !transitionToLevel(pendingLevelTransition, pendingArrival))
         setMessage("That passage is not connected to a valid arrival point.");
+    if (!pendingDialogue.empty() && !beginDialogue(pendingDialogue))
+        setMessage("That conversation is not available.");
     return result;
+}
+
+bool Game::beginDialogue(const std::string& dialogueId) {
+    const auto* dialogue = dungeon_.dialogue(dialogueId);
+    if (dialogue == nullptr || !dialogueSession_.begin(*dialogue)) return false;
+    dialogueCursor_ = 0;
+    enterMode(Mode::Dialogue);
+    return true;
 }
 
 bool Game::loadRegisteredLevel(const std::string& levelId, LevelDefinition& level,
@@ -987,7 +1120,7 @@ bool Game::transitionToLevel(const std::string& levelId, const std::string& arri
 void Game::enterMode(Mode mode) {
     if (mode_ == mode) return;
     mode_ = mode;
-    if (mode_ == Mode::Playing) audio_.playMusic(levelMusicPath_);
+    if (mode_ == Mode::Playing || mode_ == Mode::Dialogue) audio_.playMusic(levelMusicPath_);
     else audio_.stopMusic();
     if (mode_ == Mode::Victory) audio_.play(AudioCue::Victory);
     if (mode_ == Mode::Defeat) audio_.play(AudioCue::Defeat);
@@ -1082,9 +1215,42 @@ void Game::draw() const {
     else {
         drawWorld();
         drawHud();
+        if (mode_ == Mode::Dialogue) drawDialogue();
         if (storyInspectorOpen_) drawStoryInspector();
     }
     EndDrawing();
+}
+
+void Game::drawDialogue() const {
+    if (!dialogueSession_.active()) return;
+    const auto* node = dialogueSession_.node();
+    if (node == nullptr) return;
+    const auto choices = dialogueSession_.visibleChoices(storyState_);
+    DrawRectangle(130, 105, 1020, 535, Color{7, 9, 12, 246});
+    DrawRectangleLines(130, 105, 1020, 535, Color{197, 151, 66, 255});
+    DrawText(node->speaker.c_str(), 170, 140, 27, Color{221, 196, 139, 255});
+    DrawLine(170, 178, 1110, 178, Color{91, 83, 65, 255});
+    drawWrappedText(node->text, 170, 205, 920, 22, 30, Color{224, 217, 194, 255});
+    constexpr int visibleRows = 3;
+    const int first = std::clamp(dialogueCursor_ - 1, 0,
+        std::max(0, static_cast<int>(choices.size()) - visibleRows));
+    for (int row = 0; row < visibleRows && first + row < static_cast<int>(choices.size()); ++row) {
+        const int index = first + row;
+        const Rectangle bounds{170.0f, 420.0f + row * 50.0f, 940.0f, 40.0f};
+        const bool selected = index == dialogueCursor_;
+        DrawRectangleRec(bounds, selected ? Color{76, 62, 37, 255} : Color{28, 30, 34, 255});
+        DrawRectangleLinesEx(bounds, 1.0f, selected ? Color{221, 196, 139, 255} : Color{75, 77, 82, 255});
+        DrawText(TextFormat("%d", index + 1), 184, static_cast<int>(bounds.y) + 10, 17,
+                 selected ? Color{221, 196, 139, 255} : GRAY);
+        const auto choiceText = choices[static_cast<std::size_t>(index)]->text.size() > 88
+            ? choices[static_cast<std::size_t>(index)]->text.substr(0, 85) + "..."
+            : choices[static_cast<std::size_t>(index)]->text;
+        DrawText(choiceText.c_str(), 220,
+                 static_cast<int>(bounds.y) + 9, 18, selected ? RAYWHITE : LIGHTGRAY);
+    }
+    DrawText(TextFormat("UP/DOWN select    ENTER choose    ESC leave       %d/%d",
+                        choices.empty() ? 0 : dialogueCursor_ + 1, static_cast<int>(choices.size())),
+             170, 602, 16, GRAY);
 }
 
 void Game::drawWorld() const {
@@ -1231,6 +1397,14 @@ void Game::refreshStoryInspector() {
     }
     for (const auto& door : dungeon_.doors()) {
         if (!door.unlockFlag.empty()) keys.insert(door.unlockFlag);
+    }
+    for (const auto& dialogue : dungeon_.dialogues()) {
+        for (const auto& node : dialogue.nodes) {
+            for (const auto& choice : node.choices) {
+                if (!choice.requiredFlag.empty()) keys.insert(choice.requiredFlag);
+                if (!choice.setFlag.empty()) keys.insert(choice.setFlag);
+            }
+        }
     }
     storyInspectorKeys_.assign(keys.begin(), keys.end());
     storyInspectorCursor_ = std::clamp(storyInspectorCursor_, 0,
