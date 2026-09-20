@@ -97,6 +97,7 @@ private:
     std::string projectFile_;
     std::string contentRoot_;
     bool runtimeOnly_{false};
+    bool contentAvailable_{true};
     std::string levelMusicPath_;
     bool editorPlaytest_{false};
     bool quitRequested_{false};

@@ -216,6 +216,10 @@ Warnings are `/W4 /permissive-` on MSVC and `-Wall -Wextra -Wpedantic` elsewhere
 emits two known `-Wmissing-field-initializers` warnings on GCC/Clang from its aggregate initializer;
 that is pre-existing and harmless.
 
+The game executable deliberately has no compiled-in source-tree content path. Post-build copying puts
+`content/` beside the executable; a repo-root working directory is the secondary development lookup.
+This prevents a passing developer/CI source path from hiding a broken portable package.
+
 ## Known rough edges
 
 - `Game.cpp` remains a large coordinator and holds all screen drawing. Extracting screens is a named next step.

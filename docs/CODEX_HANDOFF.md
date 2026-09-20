@@ -123,6 +123,9 @@ The current tree includes:
   event reflexes, with tiering and fallback chains so portrait art can land incrementally; no frames
   or voice lines exist yet and nothing in the HUD draws it
 - Release CI, core tests, editor/level validation, and a single-program Windows playtest artifact
+- packaged builds block at a clear extraction notice when `content/textures` is unavailable instead
+  of silently presenting fallback colors; the artifact includes `README-FIRST.txt` and CI verifies
+  texture-count plus campaign/start-level integrity before upload
 
 ## Build and verification
 
@@ -194,7 +197,8 @@ column or projected surface block by `Raycaster`, point-filtered, under
 all be texture-backed. This contract supersedes the earlier instruction to defer texture production — that
 work has landed. Changing the 256×256 size or the path convention now means reauthoring every texture, so
 treat both as settled. Texture lookup first tries the executable directory's `content/`, then the current
-working directory, then the source-tree `content/` in local developer builds; failures log every searched
+working directory. Local builds receive a copied `content/` folder after linking, so the published
+executable cannot silently depend on a developer or CI source-tree path. Failures log every searched
 path before falling back to swatches.
 
 ## Party and recruitment direction

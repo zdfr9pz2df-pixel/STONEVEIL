@@ -77,6 +77,11 @@ ctest --test-dir build -C Release --output-on-failure
 
 The first configure downloads raylib automatically.
 
+For the downloadable Windows playtest, extract the entire ZIP before launching. Do not run the EXE
+inside the ZIP or move it away from the adjacent `content` folder; that folder contains all levels,
+textures, audio, and project data. New builds display a blocking extraction notice instead of silently
+running with fallback colors when packaged content is unavailable.
+
 ## Dungeon editor
 
 Run `stoneveil.exe` and click **Dungeon Editor** on the main menu (or press `E`). The editor opens the Gatehouse level used by the game; it is part of the same application and package.

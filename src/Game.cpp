@@ -157,6 +157,11 @@ Game::Game(std::string levelPathOverride, std::string projectFile, bool runtimeO
     } else {
         levelPath_ = std::move(levelPathOverride);
     }
+    const auto textureRoot = contentRoot_.empty()
+        ? std::filesystem::path{resolveContentPath("content/textures")}
+        : std::filesystem::path{contentRoot_} / "content/textures";
+    std::error_code contentError;
+    contentAvailable_ = std::filesystem::is_directory(textureRoot, contentError);
     editor_ = std::make_unique<LevelEditor>(levelPath_, projectFile_);
     resetWorld();
     roster_.reset();
@@ -539,6 +544,10 @@ void Game::update(float dt) {
     if (IsKeyPressed(KEY_M)) {
         audio_.toggleMuted();
         setMessage(audio_.muted() ? "Audio muted." : "Audio enabled.", 1.4f);
+    }
+    if (!contentAvailable_) {
+        if (IsKeyPressed(KEY_ESCAPE)) requestQuit();
+        return;
     }
     if (mode_ == Mode::Title) {
         if (IsKeyPressed(KEY_ESCAPE)) {
@@ -1464,6 +1473,17 @@ void Game::drawTitle() const {
     DrawText("STONEVEIL", 430, 132, 64, Color{220, 193, 134, 255});
     DrawText("A SYSTEMS-FIRST DUNGEON CRAWLER", 417, 218, 22, LIGHTGRAY);
     DrawText(STONEVEIL_BUILD_LABEL, 504, 254, 16, Color{90, 165, 226, 255});
+    if (!contentAvailable_) {
+        DrawRectangle(250, 312, 780, 230, Color{35, 24, 24, 255});
+        DrawRectangleLines(250, 312, 780, 230, Color{196, 92, 76, 255});
+        DrawText("GAME CONTENT NOT FOUND", 394, 344, 32, Color{232, 125, 105, 255});
+        DrawText("STONEVEIL cannot load textures, levels, or audio while the EXE is", 302, 404, 18, LIGHTGRAY);
+        DrawText("still inside the downloaded ZIP or has been copied out by itself.", 302, 432, 18, LIGHTGRAY);
+        DrawText("Right-click the ZIP > Extract All, then run stoneveil.exe from", 302, 476, 18, RAYWHITE);
+        DrawText("the extracted folder. Keep the content folder beside the EXE.", 302, 504, 18, RAYWHITE);
+        DrawText("ESC  quit", 592, 580, 17, GRAY);
+        return;
+    }
     if (!campaign_.levels.empty() && !runtimeOnly_) {
         const auto& level = campaign_.levels[static_cast<std::size_t>(campaignLevelIndex_)];
         DrawRectangleRec(campaignPreviousButton(), Color{29, 31, 35, 255});

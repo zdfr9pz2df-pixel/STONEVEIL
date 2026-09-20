@@ -75,7 +75,6 @@ if (WIN32)
   target_link_libraries(stoneveil PRIVATE comdlg32 shell32 ole32)
 endif()
 target_compile_definitions(stoneveil PRIVATE
-  STONEVEIL_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
   STONEVEIL_BUILD_LABEL="STONEVEIL v0.4.1-creator-integration"
 )
 stoneveil_warnings(stoneveil)

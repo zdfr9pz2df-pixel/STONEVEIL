@@ -25,6 +25,16 @@ jobs:
           Copy-Item build/bin/Release/stoneveil.exe playtest/stoneveil.exe
           Copy-Item build/bin/Release/stoneveil.stoneveil playtest/stoneveil.stoneveil
           Copy-Item build/bin/Release/content playtest/content -Recurse
+          Copy-Item packaging/README-FIRST.txt playtest/README-FIRST.txt
+          $sourceTextures = @(Get-ChildItem content/textures -File -Recurse)
+          $packagedTextures = @(Get-ChildItem playtest/content/textures -File -Recurse)
+          if ($sourceTextures.Count -eq 0 -or $packagedTextures.Count -ne $sourceTextures.Count) {
+            throw "Packaged texture count does not match the source tree."
+          }
+          if (-not (Test-Path playtest/content/campaigns/stoneveil.campaign) -or
+              -not (Test-Path playtest/content/levels/gatehouse.svl)) {
+            throw "Packaged campaign or starting level is missing."
+          }
       - name: Upload Windows playtest
         uses: actions/upload-artifact@v4
         with:
