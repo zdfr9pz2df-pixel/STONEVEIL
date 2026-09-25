@@ -1,0 +1,5 @@
+STONEVEIL_PROJECT 1
+ID "campaign.stoneveil"
+NAME "STONEVEIL"
+CAMPAIGN "content/campaigns/stoneveil.campaign"
+END

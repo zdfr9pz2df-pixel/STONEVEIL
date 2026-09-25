@@ -18,10 +18,16 @@ cmake -S . -B build
 cmake --build build --config Release --parallel
 ```
 
-The expected executable is:
+The expected executable for Visual Studio and other multi-configuration generators is:
 
 ```text
 build/bin/Release/stoneveil.exe
+```
+
+For single-configuration Release generators such as Ninja, it is:
+
+```text
+build/bin/stoneveil.exe
 ```
 
 Before finishing any code task:
@@ -32,8 +38,10 @@ Before finishing any code task:
 
 ## Architecture rules
 - Keep dungeon simulation, rendering, party/roster, combat, inventory, save/load, and UI logically separated as the codebase grows.
-- Do not hardcode the UI to exactly three visible characters. The active party can contain 1–3 characters.
+- Render 1–3 active characters dynamically. Maximum active party size is 3; additional recruits remain in Reserve. The 2026-09-18 Creator Alpha brief supersedes the earlier six-slot direction.
 - Prefer data-driven definitions for maps, enemies, items, recruits, and character stats.
+- Keep the dungeon editor integrated into the main executable; do not ship it as a second program.
+- Level width and height are data-driven within the supported 4–64 cell range. Do not restore fixed 16×16 runtime storage.
 - Keep gameplay systems independent of final art assets.
 - Preserve deterministic grid coordinates: the logical player tile is integer `(px, py)` while the raycast eye position is the center of that tile, `(px + 0.5, py + 0.5)`.
 - Camera, collision, interaction, enemy positions, and map tiles must use one consistent coordinate convention.
@@ -41,12 +49,12 @@ Before finishing any code task:
 ## Current gameplay direction
 - A new game begins with three available starter characters.
 - The player may choose 1, 2, or all 3 starters.
-- Maximum active party size is 3.
+- Maximum active party capacity is 3. Recruitment expands the reserve roster, not active capacity.
 - Character death is intended to be permanent.
-- More recruitable characters are found during the game and can replace losses.
+- More recruitable characters are found during the game and enter the reserve roster before party assignment.
 - Keep recruitment and roster state persistent in saves.
 - Combat should remain real-time/cooldown-driven rather than fully turn-based unless explicitly changed by the user.
-- Narrative and finished art are secondary to getting the core game systems and Level 1 working.
+- Prioritize the story-first creator pipeline and self-hosted test game; defer final artwork and content quantity.
 
 ## Visual direction
 - First-person dungeon viewport with a classic 1990s PC dungeon-crawler feel.

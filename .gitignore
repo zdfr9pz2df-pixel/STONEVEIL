@@ -1,4 +1,4 @@
-build/
+build*/
 .vs/
 CMakeFiles/
 CMakeCache.txt
@@ -7,3 +7,7 @@ cmake_install.cmake
 *.vcxproj*
 *.user
 stoneveil.sav
+Claude outputs/
+/light-debug-smoke/
+/lighting-smoke*/
+/texture-smoke*/

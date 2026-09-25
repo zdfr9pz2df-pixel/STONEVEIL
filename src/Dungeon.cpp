@@ -1,72 +1,211 @@
 #include "Dungeon.hpp"
 
+#include <algorithm>
+
 namespace sv {
 
-Dungeon::Dungeon() {
-    for (auto& row : tiles_) row.fill(Tile::Wall);
+Dungeon::Dungeon() : Dungeon(levelOneDefinition()) {}
 
-    const std::array<std::string, Height> map = {
-        "################",
-        "#......#.......#",
-        "#......#.......#",
-        "#..##..#..###..#",
-        "#..##..D..#....#",
-        "#......#..#....#",
-        "###.####..#....#",
-        "#............#.#",
-        "#............#.#",
-        "#.######.#####.#",
-        "#.#....#.......#",
-        "#.#....#..###..#",
-        "#...##....#....#",
-        "#...##....#..E.#",
-        "#..............#",
-        "################"
-    };
-
-    for (int y = 0; y < Height; ++y) {
-        for (int x = 0; x < Width; ++x) {
-            switch (map[y][x]) {
-                case '#': tiles_[y][x] = Tile::Wall; break;
-                case 'D': tiles_[y][x] = Tile::DoorClosed; break;
-                case 'E': tiles_[y][x] = Tile::Exit; break;
-                default: tiles_[y][x] = Tile::Floor; break;
+Dungeon::Dungeon(const LevelDefinition& definition)
+    : width_(std::clamp(definition.width, 1, LevelDefinition::MaximumDimension)),
+      height_(std::clamp(definition.height, 1, LevelDefinition::MaximumDimension)),
+      levelId_(definition.id),
+      name_(definition.name),
+      musicPath_(definition.musicPath),
+      spawnX_(definition.spawnX),
+      spawnY_(definition.spawnY),
+      spawnDirection_(definition.spawnDirection),
+      tiles_(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), Tile::Wall),
+      surfaces_(definition.surfaces),
+      surfaceOverrides_(definition.surfaceOverrides),
+      doors_(definition.doors),
+      objects_(definition.objects),
+      rooms_(definition.rooms),
+      triggers_(definition.triggers),
+      dialogues_(definition.dialogues) {
+    for (int y = 0; y < height_; ++y) {
+        for (int x = 0; x < width_; ++x) {
+            const bool hasRow = static_cast<std::size_t>(y) < definition.map.size();
+            const char marker = hasRow && x < static_cast<int>(definition.map[static_cast<std::size_t>(y)].size())
+                ? definition.map[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)]
+                : '#';
+            switch (marker) {
+                case '#': tiles_[tileIndex(x, y)] = Tile::Wall; break;
+                case 'D': tiles_[tileIndex(x, y)] = Tile::DoorClosed; break;
+                case 'E': tiles_[tileIndex(x, y)] = Tile::Exit; break;
+                case 'S': tiles_[tileIndex(x, y)] = Tile::SecretDoorClosed; break;
+                default: tiles_[tileIndex(x, y)] = Tile::Floor; break;
             }
         }
     }
-
-    pickups_.push_back({Pickup::Type::Key, 5, 2, false});
-    pickups_.push_back({Pickup::Type::Potion, 10, 8, false});
-    pickups_.push_back({Pickup::Type::Potion, 3, 13, false});
-
-    enemies_.push_back({10, 2, 18, true, 0.0f});
-    enemies_.push_back({11, 8, 24, true, 0.0f});
-    enemies_.push_back({6, 13, 30, true, 0.0f});
+    pickups_ = definition.pickups;
+    enemies_ = definition.enemies;
+    for (const auto& light : definition.lights) {
+        addLight(light);
+    }
+    for (const auto& water : definition.water) {
+        if (inBounds(water.x, water.y) && water.depth > 0) water_.push_back(water);
+    }
 }
 
 Tile Dungeon::tile(int x, int y) const {
     if (!inBounds(x, y)) return Tile::Wall;
-    return tiles_[y][x];
+    return tiles_[tileIndex(x, y)];
 }
 
 bool Dungeon::inBounds(int x, int y) const {
-    return x >= 0 && y >= 0 && x < Width && y < Height;
+    return x >= 0 && y >= 0 && x < width_ && y < height_;
 }
 
-bool Dungeon::blocksMovement(int x, int y) const {
+bool Dungeon::blocksMovement(int x, int y, const StoryState* storyState) const {
     const auto t = tile(x, y);
-    return t == Tile::Wall || t == Tile::DoorClosed;
+    if (t == Tile::Wall || t == Tile::DoorClosed || t == Tile::SecretDoorClosed) return true;
+    const auto* object = objectAt(x, y, storyState);
+    return object != nullptr && object->blocksMovement;
 }
 
 bool Dungeon::blocksSight(int x, int y) const {
     const auto t = tile(x, y);
-    return t == Tile::Wall || t == Tile::DoorClosed;
+    return t == Tile::Wall || t == Tile::DoorClosed || t == Tile::SecretDoorClosed;
 }
 
 bool Dungeon::openDoor(int x, int y, bool hasKey) {
-    if (!inBounds(x, y) || tiles_[y][x] != Tile::DoorClosed || !hasKey) return false;
-    tiles_[y][x] = Tile::DoorOpen;
+    if (!inBounds(x, y) || tiles_[tileIndex(x, y)] != Tile::DoorClosed) return false;
+    if (doorRequiresKeyAt(x, y) && !hasKey) return false;
+    tiles_[tileIndex(x, y)] = Tile::DoorOpen;
     return true;
+}
+
+bool Dungeon::revealSecret(int x, int y) {
+    if (!inBounds(x, y) || tiles_[tileIndex(x, y)] != Tile::SecretDoorClosed) return false;
+    tiles_[tileIndex(x, y)] = Tile::DoorOpen;
+    return true;
+}
+
+bool Dungeon::restoreTile(int x, int y, Tile tileValue) {
+    if (!inBounds(x, y)) return false;
+    const int value = static_cast<int>(tileValue);
+    if (value < static_cast<int>(Tile::Floor) || value > static_cast<int>(Tile::SecretDoorClosed)) return false;
+    tiles_[tileIndex(x, y)] = tileValue;
+    return true;
+}
+
+bool Dungeon::addLight(const LightPlacement& light) {
+    if (!inBounds(light.x, light.y) || findLight(light.lightId) == nullptr ||
+        lights_.size() >= Lighting::MaxLightsPerLevel) return false;
+    const auto occupied = std::find_if(lights_.begin(), lights_.end(), [&light](const auto& existing) {
+        return existing.x == light.x && existing.y == light.y;
+    });
+    if (occupied != lights_.end()) return false;
+    lights_.push_back(light);
+    return true;
+}
+
+bool Dungeon::moveLightAt(int fromX, int fromY, int toX, int toY) {
+    if (!inBounds(toX, toY)) return false;
+    const auto source = std::find_if(lights_.begin(), lights_.end(), [fromX, fromY](const auto& light) {
+        return light.x == fromX && light.y == fromY;
+    });
+    if (source == lights_.end()) return false;
+    const auto occupied = std::find_if(lights_.begin(), lights_.end(), [toX, toY](const auto& light) {
+        return light.x == toX && light.y == toY;
+    });
+    if (occupied != lights_.end() && occupied != source) return false;
+    source->x = toX;
+    source->y = toY;
+    return true;
+}
+
+bool Dungeon::removeLightAt(int x, int y) {
+    const auto found = std::find_if(lights_.begin(), lights_.end(), [x, y](const auto& light) {
+        return light.x == x && light.y == y;
+    });
+    if (found == lights_.end()) return false;
+    lights_.erase(found);
+    return true;
+}
+
+std::size_t Dungeon::tileIndex(int x, int y) const {
+    return static_cast<std::size_t>(y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(x);
+}
+
+const std::string& Dungeon::materialAt(int x, int y, SurfaceKind surface) const {
+    for (const auto& surfaceOverride : surfaceOverrides_) {
+        if (surfaceOverride.x == x && surfaceOverride.y == y && surfaceOverride.surface == surface &&
+            surfaceOverride.ceilingMode != CeilingMode::Sky) {
+            return surfaceOverride.materialId;
+        }
+    }
+    if (surface == SurfaceKind::Wall) return surfaces_.wallMaterial;
+    if (surface == SurfaceKind::Floor) return surfaces_.floorMaterial;
+    return surfaces_.ceilingMaterial;
+}
+
+CeilingMode Dungeon::ceilingModeAt(int x, int y) const {
+    for (const auto& surfaceOverride : surfaceOverrides_) {
+        if (surfaceOverride.x == x && surfaceOverride.y == y && surfaceOverride.surface == SurfaceKind::Ceiling) {
+            return surfaceOverride.ceilingMode;
+        }
+    }
+    return surfaces_.ceilingMode;
+}
+
+int Dungeon::waterDepthAt(int x, int y) const {
+    for (const auto& water : water_) {
+        if (water.x == x && water.y == y) return water.depth;
+    }
+    return 0;
+}
+
+WaterFlow Dungeon::waterFlowAt(int x, int y) const {
+    for (const auto& water : water_) {
+        if (water.x == x && water.y == y) return water.flow;
+    }
+    return WaterFlow::Still;
+}
+
+int Dungeon::waterVolumeAt(int x, int y) const {
+    for (const auto& water : water_) {
+        if (water.x == x && water.y == y) return water.volumeId;
+    }
+    return -1;
+}
+
+const DoorPlacement* Dungeon::doorAt(int x, int y) const {
+    for (const auto& door : doors_) {
+        if (door.x == x && door.y == y) return &door;
+    }
+    return nullptr;
+}
+
+bool Dungeon::doorRequiresKeyAt(int x, int y, const StoryState* storyState) const {
+    const auto* door = doorAt(x, y);
+    // Levels written before door metadata existed preserve their locked-door
+    // behavior instead of silently becoming easier.
+    return door == nullptr || (door->locked &&
+        (door->unlockFlag.empty() || storyState == nullptr || !storyState->value(door->unlockFlag)));
+}
+
+const WorldObject* Dungeon::objectAt(int x, int y, const StoryState* storyState) const {
+    for (const auto& object : objects_) {
+        if (object.kind != WorldObjectKind::ArrivalPoint && object.x == x && object.y == y &&
+            worldObjectActive(object, storyState)) return &object;
+    }
+    return nullptr;
+}
+
+const StoryRoom* Dungeon::roomAt(int x, int y) const {
+    for (const auto& room : rooms_) {
+        if (room.contains(x, y)) return &room;
+    }
+    return nullptr;
+}
+
+const DialogueDefinition* Dungeon::dialogue(const std::string& id) const {
+    const auto found = std::find_if(dialogues_.begin(), dialogues_.end(), [&](const auto& dialogue) {
+        return dialogue.id == id;
+    });
+    return found == dialogues_.end() ? nullptr : &*found;
 }
 
 } // namespace sv

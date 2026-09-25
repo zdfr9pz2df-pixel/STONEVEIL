@@ -1,0 +1,32 @@
+STONEVEIL_LEVEL 3
+ID "test.pressure-cooker"
+NAME "SYSTEMS PROTOTYPE 0.2  PRESSURE COOKER"
+SIZE 9 9
+SPAWN 1 1 2
+DEFAULT_WALL "material.wall.cave.mossy-rock"
+DEFAULT_FLOOR "material.floor.cave.uneven-stone"
+CEILING_MODE MATERIAL
+DEFAULT_CEILING "material.ceiling.cave.rocky"
+MAP
+#########
+#.....#.#
+#.....#.#
+#..##.#.#
+#..##.D.#
+#..##.#.#
+#.....#.#
+#.....#E#
+#########
+END_MAP
+PICKUPS 2
+KEY 1 7
+POTION 2 2
+ENEMIES 2
+2 6 40 "enemy.brute"
+5 1 14 "enemy.prowler"
+SURFACE_OVERRIDES 0
+LIGHTS 3
+3 3 "light.torch.iron-sconce"
+6 2 "light.torch.tallow-candle"
+6 6 "light.torch.tallow-candle"
+END
