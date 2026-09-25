@@ -86,11 +86,23 @@ int main() {
     CHECK(story.value("gatehouse.watch-order-read") == false);
 
     for (const auto& material : materialCatalog()) {
+        CHECK(material.properties.roughness >= 0.0f && material.properties.roughness <= 1.0f);
+        CHECK(material.properties.metallic >= 0.0f && material.properties.metallic <= 1.0f);
+        CHECK(material.properties.opacity >= 0.0f && material.properties.opacity <= 1.0f);
+        CHECK(material.properties.transmission >= 0.0f && material.properties.transmission <= 1.0f);
+        CHECK(material.properties.reflectionStrength >= 0.0f && material.properties.reflectionStrength <= 1.0f);
+        CHECK(material.properties.wetness >= 0.0f && material.properties.wetness <= 1.0f);
         if (!material.texturePath.empty()) {
             std::ifstream texture(std::string(STONEVEIL_SOURCE_DIR) + "/" + material.texturePath, std::ios::binary);
             CHECK(texture.good());
         }
     }
+    const auto* waterMaterial = findMaterial("material.floor.cave.shallow-water");
+    const auto* roughStoneMaterial = findMaterial("material.floor.cave.uneven-stone");
+    CHECK(waterMaterial != nullptr && roughStoneMaterial != nullptr);
+    CHECK(waterMaterial->properties.roughness < roughStoneMaterial->properties.roughness);
+    CHECK(waterMaterial->properties.transmission > 0.0f);
+    CHECK(waterMaterial->properties.reflectionStrength > roughStoneMaterial->properties.reflectionStrength);
     for (const auto& doorTexture : {
              "content/textures/doors/iron-banded-wooden-door.png",
              "content/textures/doors/secret-stone-door.png",
@@ -360,6 +372,41 @@ int main() {
 
     const Dungeon lightingDungeon{lightingFixture};
     CHECK(lightingDungeon.lights().size() == 1);
+
+    Dungeon runtimeLighting = lightingDungeon;
+    CHECK(runtimeLighting.addLight({6, 2, "light.magic.arcane-wisp"}));
+    CHECK(!runtimeLighting.addLight({6, 2, "light.torch.iron-sconce"}));
+    CHECK(!runtimeLighting.addLight({99, 99, "light.torch.iron-sconce"}));
+    CHECK(!runtimeLighting.addLight({6, 1, "light.unknown"}));
+    CHECK(runtimeLighting.moveLightAt(6, 2, 6, 1));
+    CHECK(!runtimeLighting.moveLightAt(6, 1, 2, 2));
+    CHECK(runtimeLighting.removeLightAt(6, 1));
+    CHECK(!runtimeLighting.removeLightAt(6, 1));
+    CHECK(runtimeLighting.lights().size() == 1);
+
+    const LightingFrame frameA = Lighting::buildFrame(lightingDungeon, 0.0);
+    const LightingFrame frameB = Lighting::buildFrame(lightingDungeon, 0.17);
+    CHECK(frameA.activeLightCount() == 1);
+    CHECK(frameA.shadowCastingLightCount() == 1);
+    CHECK(frameA.candidateCountAt(1, 1) == 1);
+    CHECK(frameA.candidateCountAt(6, 2) == 1);
+    CHECK(frameA.sampleAt(1.5, 1.5, 1, 1).lit());
+    CHECK(!frameA.sampleAt(6.5, 2.5, 6, 2).lit());
+    const LightSample animatedA = frameA.sampleAt(1.5, 1.5, 1, 1);
+    const LightSample animatedB = frameB.sampleAt(1.5, 1.5, 1, 1);
+    CHECK(std::abs(animatedA.red - animatedB.red) > 0.0001f);
+
+    LightingSettings unshadowed;
+    unshadowed.maxShadowCastingLights = 0;
+    const LightingFrame unshadowedFrame = Lighting::buildFrame(lightingDungeon, 0.0, unshadowed);
+    CHECK(unshadowedFrame.shadowCastingLightCount() == 0);
+    CHECK(unshadowedFrame.sampleAt(6.5, 2.5, 6, 2).lit());
+
+    LightingSettings disabled;
+    disabled.enabled = false;
+    const LightingFrame disabledFrame = Lighting::buildFrame(lightingDungeon, 0.0, disabled);
+    CHECK(disabledFrame.activeLightCount() == 0);
+    CHECK(!disabledFrame.sampleAt(2.5, 2.5, 2, 2).lit());
 
     const LightSample atSource = Lighting::sampleAt(lightingDungeon, 2.5, 2.5, 2, 2);
     CHECK(atSource.lit());

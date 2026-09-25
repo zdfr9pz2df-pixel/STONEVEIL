@@ -41,7 +41,7 @@ Dungeon::Dungeon(const LevelDefinition& definition)
     pickups_ = definition.pickups;
     enemies_ = definition.enemies;
     for (const auto& light : definition.lights) {
-        if (inBounds(light.x, light.y)) lights_.push_back(light);
+        addLight(light);
     }
     for (const auto& water : definition.water) {
         if (inBounds(water.x, water.y) && water.depth > 0) water_.push_back(water);
@@ -87,6 +87,41 @@ bool Dungeon::restoreTile(int x, int y, Tile tileValue) {
     const int value = static_cast<int>(tileValue);
     if (value < static_cast<int>(Tile::Floor) || value > static_cast<int>(Tile::SecretDoorClosed)) return false;
     tiles_[tileIndex(x, y)] = tileValue;
+    return true;
+}
+
+bool Dungeon::addLight(const LightPlacement& light) {
+    if (!inBounds(light.x, light.y) || findLight(light.lightId) == nullptr ||
+        lights_.size() >= Lighting::MaxLightsPerLevel) return false;
+    const auto occupied = std::find_if(lights_.begin(), lights_.end(), [&light](const auto& existing) {
+        return existing.x == light.x && existing.y == light.y;
+    });
+    if (occupied != lights_.end()) return false;
+    lights_.push_back(light);
+    return true;
+}
+
+bool Dungeon::moveLightAt(int fromX, int fromY, int toX, int toY) {
+    if (!inBounds(toX, toY)) return false;
+    const auto source = std::find_if(lights_.begin(), lights_.end(), [fromX, fromY](const auto& light) {
+        return light.x == fromX && light.y == fromY;
+    });
+    if (source == lights_.end()) return false;
+    const auto occupied = std::find_if(lights_.begin(), lights_.end(), [toX, toY](const auto& light) {
+        return light.x == toX && light.y == toY;
+    });
+    if (occupied != lights_.end() && occupied != source) return false;
+    source->x = toX;
+    source->y = toY;
+    return true;
+}
+
+bool Dungeon::removeLightAt(int x, int y) {
+    const auto found = std::find_if(lights_.begin(), lights_.end(), [x, y](const auto& light) {
+        return light.x == x && light.y == y;
+    });
+    if (found == lights_.end()) return false;
+    lights_.erase(found);
     return true;
 }
 

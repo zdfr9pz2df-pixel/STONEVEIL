@@ -123,22 +123,47 @@ TextureAsset* doorTexture(Tile tile, const std::string& root) {
     return nullptr;
 }
 
-Color shadeColor(Color base, float ambient, const LightSample& light, float shade = 1.0f) {
-    const auto litChannel = [ambient, shade](unsigned char channel, float amount) {
-        const float material = static_cast<float>(channel) * shade * (ambient + TorchGain * amount);
+Color shadeMaterial(Color base,
+                    const MaterialDefinition* material,
+                    float ambient,
+                    const LightSample& light,
+                    float shade = 1.0f,
+                    float fresnel = 0.0f) {
+    const MaterialSurfaceProperties properties = material == nullptr
+        ? MaterialSurfaceProperties{}
+        : material->properties;
+    const float wetness = std::clamp(properties.wetness, 0.0f, 1.0f);
+    const float roughness = std::clamp(properties.roughness * (1.0f - 0.72f * wetness), 0.04f, 1.0f);
+    const float diffuseScale = 1.0f - 0.16f * wetness;
+    const float lightPeak = std::max({light.red, light.green, light.blue});
+    const float dielectric = std::clamp(properties.reflectionStrength, 0.0f, 1.0f);
+    const float specular = lightPeak * dielectric * (1.0f - roughness) * (1.0f - roughness) *
+                           (0.18f + 0.82f * std::clamp(fresnel, 0.0f, 1.0f));
+    const float metallic = std::clamp(properties.metallic, 0.0f, 1.0f);
+
+    const auto litChannel = [ambient, shade, diffuseScale, specular, metallic, &properties]
+                            (unsigned char channel, float amount) {
+        const float baseChannel = static_cast<float>(channel);
+        const float diffuse = baseChannel * diffuseScale * shade * (ambient + TorchGain * amount);
         const float ember = 22.0f * amount;
-        const float lit = material + ember;
+        const float specularColor = (255.0f * (1.0f - metallic) + baseChannel * metallic) * specular;
+        const float emission = baseChannel * std::max(0.0f, properties.emissive);
+        const float lit = diffuse + ember + specularColor + emission;
         return static_cast<unsigned char>(std::clamp(lit, 0.0f, 255.0f));
     };
     return {litChannel(base.r, light.red), litChannel(base.g, light.green), litChannel(base.b, light.blue), base.a};
 }
 
-Color textureTint(float ambient, const LightSample& light, float shade = 1.0f) {
-    const auto tintChannel = [ambient, shade](float amount) {
-        const float lit = 255.0f * shade * (ambient + TorchGain * amount);
-        return static_cast<unsigned char>(std::clamp(lit, 0.0f, 255.0f));
-    };
-    return {tintChannel(light.red), tintChannel(light.green), tintChannel(light.blue), 255};
+Color shadeColor(Color base, float ambient, const LightSample& light, float shade = 1.0f) {
+    return shadeMaterial(base, nullptr, ambient, light, shade);
+}
+
+Color textureTint(const MaterialDefinition* material,
+                  float ambient,
+                  const LightSample& light,
+                  float shade = 1.0f,
+                  float fresnel = 0.0f) {
+    return shadeMaterial(WHITE, material, ambient, light, shade, fresnel);
 }
 
 float distanceShade(double distance) {
@@ -228,7 +253,8 @@ bool isSkyAt(const Dungeon& dungeon, int cellX, int cellY) {
 }
 
 void drawTexturedFloorAndCeiling(const Dungeon& dungeon, double posX, double posY, double dirX, double dirY,
-                                 double planeX, double planeY, const std::string& root) {
+                                 double planeX, double planeY, const std::string& root,
+                                 const LightingFrame& lighting) {
     const double leftRayDirX = dirX - planeX;
     const double leftRayDirY = dirY - planeY;
     const double rightRayDirX = dirX + planeX;
@@ -252,21 +278,26 @@ void drawTexturedFloorAndCeiling(const Dungeon& dungeon, double posX, double pos
             const int cellY = static_cast<int>(std::floor(worldY));
             if (!dungeon.inBounds(cellX, cellY)) continue;
             const float shade = openCellOcclusion(dungeon, cellX, cellY) * distanceShade(rowDistance);
-            const LightSample surfaceLight = Lighting::sampleAt(dungeon, worldX, worldY, cellX, cellY);
+            const LightSample surfaceLight = lighting.sampleAt(worldX, worldY, cellX, cellY);
+            const float viewNormal = static_cast<float>(0.5 / std::sqrt(rowDistance * rowDistance + 0.25));
+            const float grazing = 1.0f - std::clamp(viewNormal, 0.0f, 1.0f);
 
             const Color floorColor = surfaceColorAt(dungeon, cellX, cellY, SurfaceKind::Floor, worldX, worldY,
-                                                    Color{43, 37, 31, 255}, root);
+                                                     Color{43, 37, 31, 255}, root);
+            const auto* floorMaterial = findMaterial(dungeon.materialAt(cellX, cellY, SurfaceKind::Floor));
             DrawRectangle(ViewX + x, ViewY + y, blockW, blockH,
-                          shadeColor(floorColor, FloorAmbient, surfaceLight, shade));
+                          shadeMaterial(floorColor, floorMaterial, FloorAmbient, surfaceLight, shade, grazing));
 
             const int ceilingY = ViewH - y - blockH;
             const bool sky = isSkyAt(dungeon, cellX, cellY);
             const Color ceilingColor = surfaceColorAt(dungeon, cellX, cellY, SurfaceKind::Ceiling, worldX, worldY,
                                                       Color{29, 31, 37, 255}, root);
+            const auto* ceilingMaterial = sky ? nullptr
+                : findMaterial(dungeon.materialAt(cellX, cellY, SurfaceKind::Ceiling));
             DrawRectangle(ViewX + x, ViewY + ceilingY, blockW, blockH,
-                          shadeColor(ceilingColor, sky ? SkyAmbient : CeilingAmbient,
-                                     sky ? LightSample{} : surfaceLight,
-                                     sky ? 1.0f : shade * 0.92f));
+                          shadeMaterial(ceilingColor, ceilingMaterial, sky ? SkyAmbient : CeilingAmbient,
+                                        sky ? LightSample{} : surfaceLight,
+                                        sky ? 1.0f : shade * 0.92f, grazing * 0.4f));
         }
     }
 }
@@ -276,26 +307,31 @@ void Raycaster::draw(const Dungeon& dungeon, const PlayerState& player) const {
     const auto& root = contentRoot_;
     const double posX = player.eyeX();
     const double posY = player.eyeY();
-    const LightSample eyeLight = Lighting::sampleAt(dungeon, posX, posY, player.x(), player.y());
+    const LightingFrame lighting = Lighting::buildFrame(dungeon, GetTime(), lightingSettings_);
+    const LightSample eyeLight = lighting.sampleAt(posX, posY, player.x(), player.y());
     const bool playerSky = dungeon.ceilingModeAt(player.x(), player.y()) == CeilingMode::Sky;
     const Color ceilingColor = playerSky
         ? Color{72, 121, 159, 255}
         : materialColor(dungeon.materialAt(player.x(), player.y(), SurfaceKind::Ceiling), Color{29, 31, 37, 255});
     const Color floorColor = materialColor(dungeon.materialAt(player.x(), player.y(), SurfaceKind::Floor),
                                            Color{43, 37, 31, 255});
+    const auto* playerCeilingMaterial = playerSky ? nullptr
+        : findMaterial(dungeon.materialAt(player.x(), player.y(), SurfaceKind::Ceiling));
+    const auto* playerFloorMaterial = findMaterial(dungeon.materialAt(player.x(), player.y(), SurfaceKind::Floor));
     DrawRectangle(ViewX, ViewY, ViewW, ViewH / 2,
-                  shadeColor(ceilingColor, playerSky ? SkyAmbient : CeilingAmbient,
-                             playerSky ? LightSample{} : eyeLight,
-                             openCellOcclusion(dungeon, player.x(), player.y())));
+                  shadeMaterial(ceilingColor, playerCeilingMaterial, playerSky ? SkyAmbient : CeilingAmbient,
+                                playerSky ? LightSample{} : eyeLight,
+                                openCellOcclusion(dungeon, player.x(), player.y())));
     DrawRectangle(ViewX, ViewY + ViewH / 2, ViewW, ViewH / 2,
-                  shadeColor(floorColor, FloorAmbient, eyeLight, openCellOcclusion(dungeon, player.x(), player.y())));
+                  shadeMaterial(floorColor, playerFloorMaterial, FloorAmbient, eyeLight,
+                                openCellOcclusion(dungeon, player.x(), player.y()), 0.15f));
 
     const double dirX = static_cast<double>(PlayerState::directionX(player.direction()));
     const double dirY = static_cast<double>(PlayerState::directionY(player.direction()));
     const double planeX = -dirY * FovScale;
     const double planeY = dirX * FovScale;
 
-    drawTexturedFloorAndCeiling(dungeon, posX, posY, dirX, dirY, planeX, planeY, root);
+    drawTexturedFloorAndCeiling(dungeon, posX, posY, dirX, dirY, planeX, planeY, root, lighting);
 
     for (int x = 0; x < ViewW; ++x) {
         const double cameraX = 2.0 * x / static_cast<double>(ViewW) - 1.0;
@@ -354,7 +390,7 @@ void Raycaster::draw(const Dungeon& dungeon, const PlayerState& player) const {
                                  : posY + distance * rayDirY;
         const int viewCellX = side ? mapX : mapX - stepX;
         const int viewCellY = side ? mapY - stepY : mapY;
-        const LightSample wallLight = Lighting::sampleAt(dungeon, hitX, hitY, viewCellX, viewCellY);
+        const LightSample wallLight = lighting.sampleAt(hitX, hitY, viewCellX, viewCellY);
         const float faceShade = wallFaceShade(side, stepX, stepY, distance);
 
         const std::string materialId = dungeon.materialAt(mapX, mapY, SurfaceKind::Wall);
@@ -375,10 +411,11 @@ void Raycaster::draw(const Dungeon& dungeon, const PlayerState& player) const {
             const Rectangle dest{static_cast<float>(ViewX + x), static_cast<float>(start), 1.0f,
                                  static_cast<float>(std::max(1, end - start + 1))};
             DrawTexturePro(texture->texture, source, dest, Vector2{0.0f, 0.0f}, 0.0f,
-                           textureTint(WallAmbient, wallLight, faceShade));
+                           textureTint(material, WallAmbient, wallLight, faceShade, 0.12f));
         } else {
             DrawLine(ViewX + x, start, ViewX + x, end,
-                     shadeColor(wallColor(hitTile, materialId, side), WallAmbient, wallLight, faceShade));
+                      shadeMaterial(wallColor(hitTile, materialId, side), material,
+                                    WallAmbient, wallLight, faceShade, 0.12f));
         }
     }
 

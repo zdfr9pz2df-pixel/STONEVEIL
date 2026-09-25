@@ -125,6 +125,9 @@ public:
     bool openDoor(int x, int y, bool hasKey);
     bool revealSecret(int x, int y);
     bool restoreTile(int x, int y, Tile tile);
+    bool addLight(const LightPlacement& light);
+    bool moveLightAt(int fromX, int fromY, int toX, int toY);
+    bool removeLightAt(int x, int y);
 
     const std::string& levelId() const { return levelId_; }
     const std::string& name() const { return name_; }
